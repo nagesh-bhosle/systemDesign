@@ -1,0 +1,15 @@
+1. Money TRANSACTED (payment, charge, transfer)?  → Consistency
+   Money DISPLAYED (dashboard, analytics)?         → Availability
+
+2. Double-booking / double-assignment risk?        → Consistency
+
+3. "If 3-5 seconds stale, does anyone care?"
+        No  → Availability
+        Yes → Consistency
+
+4. "What's worse — slightly old data or no data?"
+        Old data worse → Consistency
+        No data worse  → Availability
+
+5. Different components of the SAME system can have
+   DIFFERENT answers. Always break it down.

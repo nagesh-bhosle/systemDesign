@@ -1,0 +1,44 @@
+# ============================================================
+# Spring Boot configuration for Blob Upload Demo
+# ============================================================
+
+# --- Server ---
+server:
+  port: 8080
+  tomcat:
+    max-swallow-size: -1          # Don't limit request body swallowing
+    max-connections: 100
+    threads:
+      max: 20
+
+# --- Spring multipart config (critical for large files) ---
+spring:
+  servlet:
+    multipart:
+      enabled: true
+      file-size-threshold: 0       # Write to disk immediately (streaming)
+      max-file-size: 10GB          # Max single file size
+      max-request-size: 10GB       # Max total request size
+      location: ${java.io.tmpdir}  # Temp directory for large file staging
+
+  application:
+    name: blob-upload-demo
+
+# --- Azure Blob Storage (Azurite) ---
+azure:
+  blob:
+    # Azurite default connection string
+    connection-string: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;"
+    container-name: "uploads"
+    # Block size for large file uploads (in bytes). 8MB is optimal for large files.
+    block-size-bytes: 8388608
+    # Max concurrency for parallel block uploads
+    max-concurrency: 8
+
+# --- Logging ---
+logging:
+  level:
+    com.example.blobupload: DEBUG
+    com.azure: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
