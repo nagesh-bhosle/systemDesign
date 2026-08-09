@@ -1,5 +1,5 @@
 # ============================================================
-# Spring Boot configuration for Blob Upload Demo
+# Spring Boot configuration for Dropbox Demo
 # ============================================================
 
 # --- Server ---
@@ -22,7 +22,26 @@ spring:
       location: ${java.io.tmpdir}  # Temp directory for large file staging
 
   application:
-    name: blob-upload-demo
+    name: dropbox-demo
+
+  # --- H2 Database (Dropbox metadata) ---
+  datasource:
+    url: jdbc:h2:mem:dropbox;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
 
 # --- Azure Blob Storage (Azurite) ---
 azure:
@@ -34,6 +53,10 @@ azure:
     block-size-bytes: 8388608
     # Max concurrency for parallel block uploads
     max-concurrency: 8
+
+# --- Dropbox-specific config ---
+dropbox:
+  chunk-size-bytes: 4194304    # 4 MB per chunk (client should match this)
 
 # --- Logging ---
 logging:

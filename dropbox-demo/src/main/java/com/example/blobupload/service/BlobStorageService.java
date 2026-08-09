@@ -7,17 +7,23 @@ import com.azure.storage.blob.models.BlobItem;
 import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.models.ParallelTransferOptions;
 import com.azure.storage.blob.options.BlobParallelUploadOptions;
+import com.azure.storage.blob.specialized.BlockBlobClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class BlobStorageService {
@@ -201,6 +207,154 @@ public class BlobStorageService {
                 props.getContentType(),
                 props.getLastModified() != null ? props.getLastModified().toString() : "unknown"
         );
+    }
+
+    // ============================================================
+    // CHUNKED UPLOAD (Block Blob API: stageBlock + commitBlockList)
+    // ============================================================
+
+    /**
+     * In-memory tracker for active chunked uploads.
+     * Key = uploadId, Value = ordered list of block IDs staged so far.
+     * In production you'd use Redis or a database instead of in-memory.
+     */
+    private final Map<String, List<String>> activeUploads = new ConcurrentHashMap<>();
+
+    /**
+     * Start a new chunked upload session.
+     * Returns an uploadId that the client uses for all subsequent chunk uploads.
+     */
+    public String startChunkedUpload(String blobName) {
+        BlobContainerClient containerClient = blobServiceClient
+                .createBlobContainerIfNotExists(containerName);
+
+        BlobClient blobClient = containerClient.getBlobClient(blobName);
+
+        // Ensure it's a block blob (default type for new blobs)
+        BlockBlobClient blockBlobClient = blobClient.getBlockBlobClient();
+
+        String uploadId = java.util.UUID.randomUUID().toString();
+        activeUploads.put(uploadId, new ArrayList<>());
+
+        log.info("Started chunked upload: uploadId={}, blobName={}", uploadId, blobName);
+        return uploadId;
+    }
+
+    /**
+     * Stage a single chunk as an uncommitted block in Azure Blob Storage.
+     *
+     * Azure Block Blob flow:
+     *   1. stageBlock  — upload chunk data as an uncommitted block (identified by blockId)
+     *   2. commitBlockList — tell Azure the final order of all block IDs → blob is assembled
+     *
+     * Blocks are NOT visible as part of the blob until commitBlockList is called.
+     * Each block can be up to 400 MB. A block blob can have up to 50,000 blocks.
+     *
+     * @param uploadId  the session ID returned by startChunkedUpload
+     * @param blobName  the final blob name in the container
+     * @param partNumber  1-based index of this chunk (used to generate a unique blockId)
+     * @param chunkData  the raw bytes of this chunk
+     * @return the base64 blockId assigned to this chunk
+     */
+    public String stageChunk(String uploadId, String blobName, int partNumber, byte[] chunkData) throws IOException {
+        BlobContainerClient containerClient = blobServiceClient
+                .createBlobContainerIfNotExists(containerName);
+
+        BlockBlobClient blockBlobClient = containerClient
+                .getBlobClient(blobName)
+                .getBlockBlobClient();
+
+        // Generate a unique block ID — must be base64-encoded, same length for all blocks
+        // We pad the part number to 10 digits so all block IDs have equal length
+        String blockId = Base64.getEncoder()
+                .encodeToString(String.format("%010d", partNumber).getBytes(StandardCharsets.UTF_8));
+
+        log.info("Staging chunk: uploadId={}, blobName={}, partNumber={}, chunkSize={} bytes, blockId={}",
+                uploadId, blobName, partNumber, chunkData.length, blockId);
+
+        long startTime = System.currentTimeMillis();
+
+        // Stage the block — data goes to Azure but is NOT part of the blob yet
+        try (InputStream chunkStream = new ByteArrayInputStream(chunkData)) {
+            blockBlobClient.stageBlock(blockId, chunkStream, chunkData.length);
+        }
+
+        long elapsed = System.currentTimeMillis() - startTime;
+        double throughput = (chunkData.length / (1024.0 * 1024.0)) / (elapsed / 1000.0);
+
+        log.info("Chunk staged: partNumber={}, elapsed={}ms, throughput={} MB/s",
+                partNumber, elapsed, String.format("%.2f", throughput));
+
+        // Track this block ID for later commit
+        List<String> blockIds = activeUploads.get(uploadId);
+        if (blockIds == null) {
+            throw new IllegalStateException("Unknown uploadId: " + uploadId + ". Session may have expired.");
+        }
+        synchronized (blockIds) {
+            // Ensure the list is large enough
+            while (blockIds.size() < partNumber) {
+                blockIds.add(null);
+            }
+            blockIds.set(partNumber - 1, blockId);
+        }
+
+        return blockId;
+    }
+
+    /**
+     * Commit all staged blocks — this assembles the final blob.
+     * After this call, the blob is visible and downloadable.
+     */
+    public UploadResult commitChunkedUpload(String uploadId, String blobName, String contentType) {
+        List<String> blockIds = activeUploads.remove(uploadId);
+        if (blockIds == null || blockIds.isEmpty()) {
+            throw new IllegalStateException("No staged blocks found for uploadId: " + uploadId);
+        }
+
+        // Remove any nulls (shouldn't happen if client sent all parts)
+        blockIds.removeIf(id -> id == null);
+
+        BlobContainerClient containerClient = blobServiceClient
+                .createBlobContainerIfNotExists(containerName);
+
+        BlockBlobClient blockBlobClient = containerClient
+                .getBlobClient(blobName)
+                .getBlockBlobClient();
+
+        log.info("Committing chunked upload: uploadId={}, blobName={}, totalBlocks={}",
+                uploadId, blobName, blockIds.size());
+
+        long startTime = System.currentTimeMillis();
+
+        // This is the magic call — Azure assembles all uncommitted blocks
+        // into the final blob in the order of the block IDs provided
+        blockBlobClient.commitBlockList(blockIds);
+
+        long elapsed = System.currentTimeMillis() - startTime;
+
+        // Get the final blob size
+        long blobSize = blockBlobClient.getProperties().getBlobSize();
+
+        log.info("Chunked upload committed: blobName={}, totalBlocks={}, finalSize={} bytes, elapsed={}ms",
+                blobName, blockIds.size(), blobSize, elapsed);
+
+        return new UploadResult(
+                blobName,
+                blockBlobClient.getBlobUrl(),
+                blobSize,
+                contentType,
+                elapsed,
+                0.0 // throughput not meaningful for commit (it's just metadata)
+        );
+    }
+
+    /**
+     * Abort a chunked upload — uncommitted blocks are automatically
+     * garbage-collected by Azure after a period (typically 7 days).
+     */
+    public void abortChunkedUpload(String uploadId) {
+        activeUploads.remove(uploadId);
+        log.info("Aborted chunked upload: uploadId={}", uploadId);
     }
 
     // --- Result DTOs ---

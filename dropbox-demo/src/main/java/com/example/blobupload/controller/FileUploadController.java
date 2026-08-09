@@ -131,7 +131,87 @@ public class FileUploadController {
     public ResponseEntity<Map<String, String>> health() {
         return ResponseEntity.ok(Map.of(
                 "status", "UP",
-                "service", "blob-upload-demo"
+                "service", "dropbox-demo"
+        ));
+    }
+
+    // ============================================================
+    // CHUNKED UPLOAD ENDPOINTS
+    // ============================================================
+
+    /**
+     * Step 1: Start a chunked upload session.
+     * Returns an uploadId used for all subsequent chunk uploads.
+     *
+     * curl -X POST "http://localhost:8080/api/files/chunk/start?blobName=my-large-file.mp4"
+     */
+    @PostMapping("/chunk/start")
+    public ResponseEntity<Map<String, String>> startChunkedUpload(
+            @RequestParam("blobName") String blobName) {
+        String uploadId = blobStorageService.startChunkedUpload(blobName);
+        return ResponseEntity.ok(Map.of(
+                "uploadId", uploadId,
+                "blobName", blobName
+        ));
+    }
+
+    /**
+     * Step 2: Upload a single chunk.
+     * Client sends one chunk at a time — waits for 200 OK before sending the next.
+     *
+     * curl -X POST "http://localhost:8080/api/files/chunk/upload?uploadId=xxx&blobName=my-file.mp4&partNumber=1" \
+     *   --data-binary @chunk_001.bin
+     */
+    @PostMapping(value = "/chunk/upload", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    public ResponseEntity<Map<String, Object>> uploadChunk(
+            @RequestParam("uploadId") String uploadId,
+            @RequestParam("blobName") String blobName,
+            @RequestParam("partNumber") int partNumber,
+            @RequestBody byte[] chunkData) throws Exception {
+
+        log.info("Received chunk: uploadId={}, blobName={}, partNumber={}, size={} bytes",
+                uploadId, blobName, partNumber, chunkData.length);
+
+        String blockId = blobStorageService.stageChunk(uploadId, blobName, partNumber, chunkData);
+
+        return ResponseEntity.ok(Map.of(
+                "uploadId", uploadId,
+                "partNumber", partNumber,
+                "blockId", blockId,
+                "size", chunkData.length,
+                "status", "staged"
+        ));
+    }
+
+    /**
+     * Step 3: Commit all chunks — assembles the final blob.
+     *
+     * curl -X POST "http://localhost:8080/api/files/chunk/complete?uploadId=xxx&blobName=my-file.mp4&contentType=video/mp4"
+     */
+    @PostMapping("/chunk/complete")
+    public ResponseEntity<BlobStorageService.UploadResult> completeChunkedUpload(
+            @RequestParam("uploadId") String uploadId,
+            @RequestParam("blobName") String blobName,
+            @RequestParam(value = "contentType", required = false, defaultValue = "application/octet-stream") String contentType) {
+
+        log.info("Completing chunked upload: uploadId={}, blobName={}", uploadId, blobName);
+
+        BlobStorageService.UploadResult result = blobStorageService.commitChunkedUpload(uploadId, blobName, contentType);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Abort a chunked upload session.
+     *
+     * curl -X POST "http://localhost:8080/api/files/chunk/abort?uploadId=xxx"
+     */
+    @PostMapping("/chunk/abort")
+    public ResponseEntity<Map<String, String>> abortChunkedUpload(
+            @RequestParam("uploadId") String uploadId) {
+        blobStorageService.abortChunkedUpload(uploadId);
+        return ResponseEntity.ok(Map.of(
+                "uploadId", uploadId,
+                "status", "aborted"
         ));
     }
 }

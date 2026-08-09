@@ -24,7 +24,7 @@ git checkout -b feature/<short-descriptive-topic>
 - **Before committing**, verify the project builds successfully:
 
 ```
-cd blob-upload-demo && ./mvnw clean compile
+cd dropbox-demo && ./mvnw clean compile
 ```
 
 - If the build fails, fix the errors before committing
