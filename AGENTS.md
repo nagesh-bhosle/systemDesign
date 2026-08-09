@@ -18,9 +18,20 @@ git checkout -b feature/<short-descriptive-topic>
 - Use kebab-case for the topic
 - Never commit directly to `main`
 
-### 2. Make changes and commit
+### 2. Make changes and build
 
 - Make all code changes on the feature branch
+- **Before committing**, verify the project builds successfully:
+
+```
+cd blob-upload-demo && ./mvnw clean compile
+```
+
+- If the build fails, fix the errors before committing
+- Only proceed to commit once the build passes
+
+### 3. Commit
+
 - Commit with a clear, descriptive commit message (imperative mood, e.g., "Add sync service with SSE support")
 - Stage and commit logically related changes together
 
@@ -29,13 +40,13 @@ git add <files>
 git commit -m "<description>"
 ```
 
-### 3. Push the feature branch to remote
+### 4. Push the feature branch to remote
 
 ```
 git push -u origin feature/<topic>
 ```
 
-### 4. Ask the user before merging
+### 5. Ask the user before merging
 
 After all changes are complete and pushed, **stop and ask the user**:
 
@@ -44,7 +55,7 @@ After all changes are complete and pushed, **stop and ask the user**:
 
 **Do NOT merge without explicit confirmation from the user.**
 
-### 5. Merge to main and push (only after user says yes)
+### 6. Merge to main and push (only after user says yes)
 
 ```
 git checkout main
@@ -53,7 +64,7 @@ git merge feature/<topic>
 git push origin main
 ```
 
-### 6. Clean up (optional)
+### 7. Clean up (optional)
 
 After a successful merge, offer to delete the feature branch:
 
@@ -69,11 +80,12 @@ git push origin --delete feature/<topic>
 | Step | Action | Automated? |
 |------|--------|------------|
 | 1 | Create `feature/<topic>` branch | ✅ Automatic |
-| 2 | Make changes + commit | ✅ Automatic |
-| 3 | Push feature branch to remote | ✅ Automatic |
-| 4 | Ask user: "Should I merge to main?" | ⏸️ Wait for user |
-| 5 | Merge to main + push | ✅ Only after user confirms |
-| 6 | Delete feature branch | ✅ After merge, offer to clean up |
+| 2 | Make changes + **build** (`./mvnw clean compile`) | ✅ Automatic |
+| 3 | Commit | ✅ Automatic |
+| 4 | Push feature branch to remote | ✅ Automatic |
+| 5 | Ask user: "Should I merge to main?" | ⏸️ Wait for user |
+| 6 | Merge to main + push | ✅ Only after user confirms |
+| 7 | Delete feature branch | ✅ After merge, offer to clean up |
 
 ## What NOT to do
 
