@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dropbox Demo — File Upload & Sync</title>
+    <style>
+        :root {
+            --primary: #0061FF;
+            --primary-dark: #0047CC;
+            --bg: #F7F8FA;
+            --card: #FFFFFF;
+            --border: #E1E4E8;
+            --text: #1E1E2D;
+            --text-muted: #6B7280;
+            --success: #16A34A;
+            --danger: #DC2626;
+            --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+            --radius: 12px;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        /* Header */
+        header {
+            background: var(--primary);
+            color: white;
+            padding: 16px 32px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: var(--shadow);
+        }
+        header .logo {
+            font-size: 24px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+        header .subtitle {
+            font-size: 14px;
+            opacity: 0.85;
+        }
+        header .spacer { flex: 1; }
+        header .user-box {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255,255,255,0.15);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 14px;
+        }
+        header .user-box input {
+            background: transparent;
+            border: none;
+            color: white;
+            font-size: 14px;
+            width: 180px;
+            outline: none;
+        }
+        header .user-box input::placeholder { color: rgba(255,255,255,0.6); }
+
+        /* Layout */
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 20px;
+            background: var(--card);
+            border-radius: var(--radius);
+            padding: 4px;
+            box-shadow: var(--shadow);
+        }
+        .tab {
+            flex: 1;
+            padding: 10px 20px;
+            text-align: center;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+        .tab.active {
+            background: var(--primary);
+            color: white;
+        }
+        .tab:hover:not(.active) {
+            background: #F0F2F5;
+        }
+
+        /* Cards */
+        .card {
+            background: var(--card);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+        .card h2 {
+            font-size: 18px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Upload zone */
+        .upload-zone {
+            border: 2px dashed var(--border);
+            border-radius: var(--radius);
+            padding: 48px 24px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: #FAFBFC;
+        }
+        .upload-zone:hover, .upload-zone.dragover {
+            border-color: var(--primary);
+            background: #EFF6FF;
+        }
+        .upload-zone .icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+        }
+        .upload-zone p {
+            color: var(--text-muted);
+            font-size: 15px;
+            margin-bottom: 4px;
+        }
+        .upload-zone .browse-btn {
+            display: inline-block;
+            margin-top: 12px;
+            padding: 8px 24px;
+            background: var(--primary);
+            color: white;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        #fileInput { display: none; }
+
+        /* Progress */
+        .progress-container {
+            margin-top: 16px;
+        }
+        .progress-item {
+            background: #F0F2F5;
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .progress-item .file-name {
+            flex: 1;
+            font-size: 14px;
+            font-weight: 500;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .progress-bar {
+            flex: 2;
+            height: 8px;
+            background: #E1E4E8;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: var(--primary);
+            border-radius: 4px;
+            transition: width 0.3s;
+            width: 0%;
+        }
+        .progress-text {
+            font-size: 13px;
+            color: var(--text-muted);
+            min-width: 60px;
+            text-align: right;
+        }
+        .progress-item.complete .progress-fill { background: var(--success); }
+        .progress-item.error .progress-fill { background: var(--danger); }
+
+        /* File list */
+        .file-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .file-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: #FAFBFC;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+        .file-item:hover {
+            border-color: var(--primary);
+            box-shadow: var(--shadow);
+        }
+        .file-icon {
+            font-size: 24px;
+            width: 40px;
+            text-align: center;
+        }
+        .file-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .file-info .name {
+            font-size: 14px;
+            font-weight: 600;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .file-info .meta {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        .file-actions {
+            display: flex;
+            gap: 6px;
+        }
+        .btn {
+            padding: 6px 14px;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-dark); }
+        .btn-danger { background: #FEE2E2; color: var(--danger); }
+        .btn-danger:hover { background: #FECACA; }
+        .btn-share { background: #E0E7FF; color: #4338CA; }
+        .btn-share:hover { background: #C7D2FE; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Share modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.4);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal {
+            background: var(--card);
+            border-radius: var(--radius);
+            padding: 24px;
+            width: 420px;
+            max-width: 90%;
+            box-shadow: var(--shadow-lg);
+        }
+        .modal h3 {
+            font-size: 18px;
+            margin-bottom: 16px;
+        }
+        .modal input {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 16px;
+            outline: none;
+        }
+        .modal input:focus { border-color: var(--primary); }
+        .modal-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+
+        /* Sync indicator */
+        .sync-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .sync-badge.connected {
+            background: #DCFCE7;
+            color: var(--success);
+        }
+        .sync-badge.disconnected {
+            background: #FEE2E2;
+            color: var(--danger);
+        }
+        .sync-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: var(--text);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            box-shadow: var(--shadow-lg);
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s;
+            z-index: 2000;
+        }
+        .toast.show { opacity: 1; transform: translateY(0); }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-muted);
+        }
+        .empty-state .icon { font-size: 40px; margin-bottom: 8px; }
+
+        /* Shared badge */
+        .shared-badge {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: #E0E7FF;
+            color: #4338CA;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <span class="logo">📦 Dropbox Demo</span>
+    <span class="subtitle">— File Upload, Share & Sync</span>
+    <div class="spacer"></div>
+    <div class="user-box">
+        <span>👤</span>
+        <input type="text" id="userEmail" placeholder="your@email.com" value="alice@example.com">
+    </div>
+</header>
+
+<div class="container">
+    <!-- Sync status -->
+    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+        <span class="sync-badge disconnected" id="syncBadge">
+            <span class="sync-dot"></span>
+            <span id="syncText">Not connected</span>
+        </span>
+        <span style="font-size: 13px; color: var(--text-muted);" id="userIdDisplay"></span>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+        <button class="tab active" data-tab="my-files">📁 My Files</button>
+        <button class="tab" data-tab="shared">🤝 Shared With Me</button>
+        <button class="tab" data-tab="upload">⬆️ Upload</button>
+    </div>
+
+    <!-- Upload Tab -->
+    <div id="tab-upload" class="tab-content" style="display: none;">
+        <div class="card">
+            <h2>⬆️ Upload Files</h2>
+            <div class="upload-zone" id="uploadZone">
+                <div class="icon">📁</div>
+                <p>Drag & drop files here, or</p>
+                <span class="browse-btn">Browse Files</span>
+                <p style="font-size: 12px; margin-top: 8px;">Small files upload directly · Large files use chunked upload</p>
+            </div>
+            <input type="file" id="fileInput" multiple>
+            <div class="progress-container" id="progressContainer"></div>
+        </div>
+    </div>
+
+    <!-- My Files Tab -->
+    <div id="tab-my-files" class="tab-content">
+        <div class="card">
+            <h2>📁 My Files <span style="font-size: 14px; color: var(--text-muted); font-weight: 400;" id="fileCount"></span></h2>
+            <div class="file-list" id="fileList">
+                <div class="empty-state">
+                    <div class="icon">📂</div>
+                    <p>No files yet. Switch to the Upload tab to add some.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Shared Tab -->
+    <div id="tab-shared" class="tab-content" style="display: none;">
+        <div class="card">
+            <h2>🤝 Shared With Me</h2>
+            <div class="file-list" id="sharedFileList">
+                <div class="empty-state">
+                    <div class="icon">📭</div>
+                    <p>No files have been shared with you yet.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Share Modal -->
+<div class="modal-overlay" id="shareModal">
+    <div class="modal">
+        <h3>Share File</h3>
+        <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 12px;" id="shareFileName"></p>
+        <input type="text" id="shareUserEmail" placeholder="recipient@email.com">
+        <div class="modal-actions">
+            <button class="btn" style="background: #F0F2F5;" onclick="closeShareModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="confirmShare()">Share</button>
+        </div>
+    </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+    // ============================================================
+    // State
+    // ============================================================
+    let currentUserId = null;
+    let currentTab = 'my-files';
+    let sseSource = null;
+    let shareFileId = null;
+    let userEmailMap = {}; // email -> userId cache
+
+    const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB — must match server config
+    const SIMPLE_UPLOAD_THRESHOLD = 8 * 1024 * 1024; // 8 MB — use simple upload below this
+
+    // ============================================================
+    // User Registration
+    // ============================================================
+    async function ensureUser() {
+        const email = document.getElementById('userEmail').value.trim();
+        if (!email) { showToast('Please enter your email'); return null; }
+
+        // Check cache
+        if (userEmailMap[email]) {
+            currentUserId = userEmailMap[email];
+            updateUserIdDisplay();
+            return currentUserId;
+        }
+
+        try {
+            const res = await fetch('/api/dropbox/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, name: email.split('@')[0] })
+            });
+            const user = await res.json();
+            userEmailMap[email] = user.id;
+            currentUserId = user.id;
+            updateUserIdDisplay();
+            return currentUserId;
+        } catch (err) {
+            showToast('Failed to register user: ' + err.message);
+            return null;
+        }
+    }
+
+    function updateUserIdDisplay() {
+        document.getElementById('userIdDisplay').textContent =
+            currentUserId ? `User ID: ${currentUserId.substring(0, 8)}...` : '';
+    }
+
+    // Re-register when email changes
+    document.getElementById('userEmail').addEventListener('change', async () => {
+        await ensureUser();
+        if (currentUserId) {
+            refreshFiles();
+            connectSSE();
+        }
+    });
+
+    // ============================================================
+    // Tabs
+    // ============================================================
+    document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            currentTab = tab.dataset.tab;
+            document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+            document.getElementById('tab-' + currentTab).style.display = 'block';
+            if (currentTab === 'my-files') refreshFiles();
+            if (currentTab === 'shared') refreshSharedFiles();
+        });
+    });
+
+    // ============================================================
+    // Upload
+    // ============================================================
+    const uploadZone = document.getElementById('uploadZone');
+    const fileInput = document.getElementById('fileInput');
+
+    uploadZone.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+
+    uploadZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadZone.classList.add('dragover');
+    });
+    uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+    uploadZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadZone.classList.remove('dragover');
+        handleFiles(e.dataTransfer.files);
+    });
+
+    async function handleFiles(files) {
+        const userId = await ensureUser();
+        if (!userId) return;
+
+        for (const file of files) {
+            if (file.size < SIMPLE_UPLOAD_THRESHOLD) {
+                await simpleUpload(file, userId);
+            } else {
+                await chunkedUpload(file, userId);
+            }
+        }
+    }
+
+    async function simpleUpload(file, userId) {
+        const progressItem = createProgressItem(file.name);
+        try {
+            progressItem.querySelector('.progress-text').textContent = 'Uploading...';
+            const res = await fetch(`/api/dropbox/files/upload?name=${encodeURIComponent(file.name)}&mimeType=${encodeURIComponent(file.type || 'application/octet-stream')}`, {
+                method: 'POST',
+                headers: {
+                    'X-User-Id': userId,
+                    'Content-Type': 'application/octet-stream'
+                },
+                body: file
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            progressItem.querySelector('.progress-fill').style.width = '100%';
+            progressItem.querySelector('.progress-text').textContent = '✅ Done';
+            progressItem.classList.add('complete');
+            showToast(`"${file.name}" uploaded successfully`);
+            refreshFiles();
+        } catch (err) {
+            progressItem.classList.add('error');
+            progressItem.querySelector('.progress-text').textContent = '❌ Failed';
+            showToast(`Upload failed: ${err.message}`);
+        }
+        setTimeout(() => progressItem.remove(), 3000);
+    }
+
+    async function chunkedUpload(file, userId) {
+        const progressItem = createProgressItem(file.name);
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+        try {
+            // Compute SHA-256 fingerprint
+            progressItem.querySelector('.progress-text').textContent = 'Hashing...';
+            const fingerprint = await computeSHA256(file);
+
+            // Init
+            progressItem.querySelector('.progress-text').textContent = 'Initializing...';
+            const initRes = await fetch('/api/dropbox/files/chunk/init', {
+                method: 'POST',
+                headers: {
+                    'X-User-Id': userId,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    fingerprint,
+                    name: file.name,
+                    size: file.size,
+                    mimeType: file.type || 'application/octet-stream'
+                })
+            });
+            const init = await initRes.json();
+
+            if (init.dedup && init.status === 'UPLOADED') {
+                progressItem.querySelector('.progress-fill').style.width = '100%';
+                progressItem.querySelector('.progress-text').textContent = '✅ Dedup hit';
+                progressItem.classList.add('complete');
+                showToast(`"${file.name}" already exists (dedup)`);
+                refreshFiles();
+                setTimeout(() => progressItem.remove(), 3000);
+                return;
+            }
+
+            const uploadedChunks = new Set(init.uploadedChunks || []);
+            let uploadedCount = uploadedChunks.size;
+
+            // Upload chunks
+            for (let i = 0; i < totalChunks; i++) {
+                if (uploadedChunks.has(i)) continue;
+
+                const start = i * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, file.size);
+                const chunk = file.slice(start, end);
+                const chunkHash = await computeSHA256(chunk);
+
+                const chunkRes = await fetch(`/api/dropbox/files/chunk/upload?fileId=${init.fileId}&partNumber=${i}&chunkHash=${chunkHash}`, {
+                    method: 'POST',
+                    headers: {
+                        'X-User-Id': userId,
+                        'Content-Type': 'application/octet-stream'
+                    },
+                    body: chunk
+                });
+                if (!chunkRes.ok) throw new Error(`Chunk ${i} failed: HTTP ${chunkRes.status}`);
+
+                uploadedCount++;
+                const pct = (uploadedCount / totalChunks) * 100;
+                progressItem.querySelector('.progress-fill').style.width = pct + '%';
+                progressItem.querySelector('.progress-text').textContent = `${uploadedCount}/${totalChunks} chunks`;
+            }
+
+            // Complete
+            progressItem.querySelector('.progress-text').textContent = 'Finalizing...';
+            const completeRes = await fetch(`/api/dropbox/files/chunk/complete?fileId=${init.fileId}`, {
+                method: 'POST',
+                headers: { 'X-User-Id': userId }
+            });
+            if (!completeRes.ok) throw new Error('Complete failed');
+
+            progressItem.querySelector('.progress-fill').style.width = '100%';
+            progressItem.querySelector('.progress-text').textContent = '✅ Done';
+            progressItem.classList.add('complete');
+            showToast(`"${file.name}" uploaded successfully (${totalChunks} chunks)`);
+            refreshFiles();
+        } catch (err) {
+            progressItem.classList.add('error');
+            progressItem.querySelector('.progress-text').textContent = '❌ Failed';
+            showToast(`Chunked upload failed: ${err.message}`);
+        }
+        setTimeout(() => progressItem.remove(), 5000);
+    }
+
+    function createProgressItem(fileName) {
+        const container = document.getElementById('progressContainer');
+        const item = document.createElement('div');
+        item.className = 'progress-item';
+        item.innerHTML = `
+            <span class="file-name">${escapeHtml(fileName)}</span>
+            <div class="progress-bar"><div class="progress-fill"></div></div>
+            <span class="progress-text">Queued...</span>
+        `;
+        container.appendChild(item);
+        return item;
+    }
+
+    async function computeSHA256(blob) {
+        const buffer = await blob.arrayBuffer();
+        const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // ============================================================
+    // File List
+    // ============================================================
+    async function refreshFiles() {
+        const userId = await ensureUser();
+        if (!userId) return;
+
+        try {
+            const res = await fetch('/api/dropbox/files', { headers: { 'X-User-Id': userId } });
+            const files = await res.json();
+            renderFiles(files, 'fileList', false);
+            document.getElementById('fileCount').textContent = `(${files.length})`;
+        } catch (err) {
+            showToast('Failed to load files: ' + err.message);
+        }
+    }
+
+    async function refreshSharedFiles() {
+        const userId = await ensureUser();
+        if (!userId) return;
+
+        try {
+            const res = await fetch('/api/dropbox/files/shared', { headers: { 'X-User-Id': userId } });
+            const files = await res.json();
+            renderFiles(files, 'sharedFileList', true);
+        } catch (err) {
+            showToast('Failed to load shared files: ' + err.message);
+        }
+    }
+
+    function renderFiles(files, containerId, isShared) {
+        const container = document.getElementById(containerId);
+        if (!files || files.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div class="icon">${isShared ? '📭' : '📂'}</div>
+                    <p>${isShared ? 'No files have been shared with you yet.' : 'No files yet. Switch to the Upload tab to add some.'}</p>
+                </div>`;
+            return;
+        }
+
+        container.innerHTML = files.map(f => `
+            <div class="file-item">
+                <span class="file-icon">${getFileIcon(f.name)}</span>
+                <div class="file-info">
+                    <div class="name">${escapeHtml(f.name)} ${isShared ? '<span class="shared-badge">SHARED</span>' : ''}</div>
+                    <div class="meta">${formatSize(f.size)} · ${formatDate(f.updatedAt)} · ${f.status || 'UPLOADED'}</div>
+                </div>
+                <div class="file-actions">
+                    <button class="btn btn-primary" onclick="downloadFile('${f.id}')">Download</button>
+                    ${!isShared ? `<button class="btn btn-share" onclick="openShareModal('${f.id}', '${escapeHtml(f.name)}')">Share</button>` : ''}
+                    ${!isShared ? `<button class="btn btn-danger" onclick="deleteFile('${f.id}', '${escapeHtml(f.name)}')">Delete</button>` : ''}
+                </div>
+            </div>
+        `).join('');
+    }
+
+    async function downloadFile(fileId) {
+        const userId = await ensureUser();
+        if (!userId) return;
+        window.open(`/api/dropbox/files/${fileId}/download`, '_blank');
+        // Note: browser can't set custom headers on window.open, so we use a workaround:
+        // We'll use fetch + blob instead
+        try {
+            const res = await fetch(`/api/dropbox/files/${fileId}/download`, {
+                headers: { 'X-User-Id': userId }
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = res.headers.get('Content-Disposition')?.split('filename="')[1]?.replace('"', '') || 'download';
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            showToast('Download failed: ' + err.message);
+        }
+    }
+
+    async function deleteFile(fileId, fileName) {
+        if (!confirm(`Delete "${fileName}"?`)) return;
+        const userId = await ensureUser();
+        if (!userId) return;
+        try {
+            await fetch(`/api/dropbox/files/${fileId}`, {
+                method: 'DELETE',
+                headers: { 'X-User-Id': userId }
+            });
+            showToast(`"${fileName}" deleted`);
+            refreshFiles();
+        } catch (err) {
+            showToast('Delete failed: ' + err.message);
+        }
+    }
+
+    // ============================================================
+    // Share
+    // ============================================================
+    function openShareModal(fileId, fileName) {
+        shareFileId = fileId;
+        document.getElementById('shareFileName').textContent = `Sharing: ${fileName}`;
+        document.getElementById('shareUserEmail').value = '';
+        document.getElementById('shareModal').classList.add('show');
+        document.getElementById('shareUserEmail').focus();
+    }
+
+    function closeShareModal() {
+        document.getElementById('shareModal').classList.remove('show');
+        shareFileId = null;
+    }
+
+    async function confirmShare() {
+        const email = document.getElementById('shareUserEmail').value.trim();
+        if (!email) { showToast('Please enter recipient email'); return; }
+
+        const userId = await ensureUser();
+        if (!userId) return;
+
+        // Ensure recipient exists
+        let recipientId = userEmailMap[email];
+        if (!recipientId) {
+            try {
+                const res = await fetch('/api/dropbox/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, name: email.split('@')[0] })
+                });
+                const recipient = await res.json();
+                recipientId = recipient.id;
+                userEmailMap[email] = recipientId;
+            } catch (err) {
+                showToast('Failed to find/create recipient: ' + err.message);
+                return;
+            }
+        }
+
+        try {
+            await fetch(`/api/dropbox/files/${shareFileId}/share`, {
+                method: 'POST',
+                headers: {
+                    'X-User-Id': userId,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ sharedWithUserId: recipientId })
+            });
+            showToast(`File shared with ${email}`);
+            closeShareModal();
+        } catch (err) {
+            showToast('Share failed: ' + err.message);
+        }
+    }
+
+    // ============================================================
+    // SSE Sync
+    // ============================================================
+    function connectSSE() {
+        if (!currentUserId) return;
+        if (sseSource) sseSource.close();
+
+        sseSource = new EventSource(`/api/dropbox/sync/events`, { withCredentials: false });
+
+        // Pass userId as query param since EventSource can't set headers
+        // We'll use a workaround: append userId to URL
+        sseSource.close();
+        sseSource = new EventSource(`/api/dropbox/sync/events?userId=${currentUserId}`);
+
+        sseSource.onopen = () => {
+            document.getElementById('syncBadge').className = 'sync-badge connected';
+            document.getElementById('syncText').textContent = 'Synced';
+        };
+
+        sseSource.onerror = () => {
+            document.getElementById('syncBadge').className = 'sync-badge disconnected';
+            document.getElementById('syncText').textContent = 'Disconnected — retrying...';
+        };
+
+        sseSource.addEventListener('change', (e) => {
+            const data = JSON.parse(e.data);
+            showToast(`Sync: ${data.name} — ${data.status}`);
+            refreshFiles();
+            if (currentTab === 'shared') refreshSharedFiles();
+        });
+    }
+
+    // ============================================================
+    // Helpers
+    // ============================================================
+    function showToast(msg) {
+        const toast = document.getElementById('toast');
+        toast.textContent = msg;
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    function formatSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+    }
+
+    function formatDate(dateStr) {
+        if (!dateStr) return '';
+        const d = new Date(dateStr);
+        return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function getFileIcon(fileName) {
+        const ext = fileName.split('.').pop().toLowerCase();
+        const icons = {
+            pdf: '📄', doc: '📝', docx: '📝', txt: '📝',
+            jpg: '🖼️', jpeg: '🖼️', png: '🖼️', gif: '🖼️', svg: '🖼️',
+            mp4: '🎬', avi: '🎬', mov: '🎬', mkv: '🎬',
+            mp3: '🎵', wav: '🎵', flac: '🎵',
+            zip: '🗜️', rar: '🗜️', '7z': '🗜️',
+            java: '☕', py: '🐍', js: '📜', ts: '📜',
+            json: '📋', xml: '📋', yml: '📋', yaml: '📋',
+        };
+        return icons[ext] || '📄';
+    }
+
+    // ============================================================
+    // Init
+    // ============================================================
+    (async function init() {
+        await ensureUser();
+        if (currentUserId) {
+            refreshFiles();
+            connectSSE();
+        }
+    })();
+</script>
+</body>
+</html>
