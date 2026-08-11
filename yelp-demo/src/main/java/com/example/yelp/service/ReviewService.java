@@ -29,6 +29,10 @@ import java.util.List;
  * 2. Synchronous avgRating update:
  *    The write volume is tiny (~1 write/sec), so we update avgRating and numRatings
  *    synchronously on the Business entity. No message queue needed — simplicity wins.
+ *
+ * 3. Search index sync:
+ *    After updating the business rating, we call searchService.indexBusiness() to
+ *    keep the Elasticsearch index in sync (no-op when using Postgres backend).
  */
 @Service
 public class ReviewService {
@@ -36,13 +40,16 @@ public class ReviewService {
     private final ReviewRepository reviewRepository;
     private final BusinessRepository businessRepository;
     private final UserRepository userRepository;
+    private final SearchService searchService;
 
     public ReviewService(ReviewRepository reviewRepository,
                          BusinessRepository businessRepository,
-                         UserRepository userRepository) {
+                         UserRepository userRepository,
+                         SearchService searchService) {
         this.reviewRepository = reviewRepository;
         this.businessRepository = businessRepository;
         this.userRepository = userRepository;
+        this.searchService = searchService;
     }
 
     /**
@@ -121,6 +128,8 @@ public class ReviewService {
             business.setNumRatings((int) count);
         }
         businessRepository.save(business);
+        // Keep search index in sync (no-op for Postgres, re-indexes for Elasticsearch)
+        searchService.indexBusiness(business);
     }
 
     private ReviewDto toDto(Review r) {

@@ -41,28 +41,44 @@ echo "  🍴 Yelp Demo — Starting up..."
 echo "============================================"
 echo ""
 
-# --- 1. Start PostgreSQL + PostGIS via Docker ---
-echo "📦 Step 1: Starting PostgreSQL + PostGIS container..."
+# --- 1. Start PostgreSQL + PostGIS and Elasticsearch via Docker ---
+echo "📦 Step 1: Starting Docker containers (PostgreSQL + PostGIS + Elasticsearch)..."
 if docker compose up -d 2>/dev/null || docker-compose up -d; then
-    echo "  ✅ Database container started"
+    echo "  ✅ Containers started"
 else
-    echo "  ❌ Failed to start Docker container. Is Docker running?"
+    echo "  ❌ Failed to start Docker containers. Is Docker running?"
     exit 1
 fi
 
 # --- 2. Wait for database to be ready ---
 echo ""
-echo "⏳ Step 2: Waiting for database to be ready..."
+echo "⏳ Step 2: Waiting for PostgreSQL to be ready..."
 for i in $(seq 1 30); do
     if docker exec yelp-postgres pg_isready -U yelp -d yelp > /dev/null 2>&1; then
-        echo "  ✅ Database is ready"
+        echo "  ✅ PostgreSQL is ready"
         break
     fi
     if [ $i -eq 30 ]; then
-        echo "  ❌ Database did not become ready in 30 seconds"
+        echo "  ❌ PostgreSQL did not become ready in 30 seconds"
         exit 1
     fi
     echo "  ...waiting ($i/30)"
+    sleep 1
+done
+
+# --- 2b. Wait for Elasticsearch to be ready ---
+echo ""
+echo "⏳ Step 2b: Waiting for Elasticsearch to be ready..."
+for i in $(seq 1 60); do
+    if curl -s http://localhost:9200/_cluster/health | grep -q '"status":"green"\|"status":"yellow"' 2>/dev/null; then
+        echo "  ✅ Elasticsearch is ready"
+        break
+    fi
+    if [ $i -eq 60 ]; then
+        echo "  ⚠️  Elasticsearch did not become ready in 60 seconds — continuing anyway"
+        echo "     (Elasticsearch is only needed if search.backend=elasticsearch)"
+    fi
+    echo "  ...waiting ($i/60)"
     sleep 1
 done
 
@@ -83,8 +99,9 @@ echo ""
 echo "============================================"
 echo "  🎉 Yelp Demo is running!"
 echo "  📌 Open: http://localhost:8081"
-echo "  📊 H2 Console: N/A (using PostgreSQL)"
-echo "  🗄️  Database: localhost:5433/yelp"
+echo "  �️  PostgreSQL: localhost:5433/yelp"
+echo "  🔍 Elasticsearch: localhost:9200"
+echo "  ⚙️  Search backend: check application.yml (search.backend)"
 echo "  🛑 To stop: ./stop.sh"
 echo "============================================"
 echo ""

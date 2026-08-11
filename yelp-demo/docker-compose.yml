@@ -17,5 +17,24 @@ services:
       retries: 10
     restart: unless-stopped
 
+  yelp-es:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.14.0
+    container_name: yelp-elasticsearch
+    ports:
+      - "9200:9200"
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms256m -Xmx256m
+    volumes:
+      - yelp-esdata:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -v '\"status\":\"red\"'"]
+      interval: 5s
+      timeout: 10s
+      retries: 15
+    restart: unless-stopped
+
 volumes:
   yelp-pgdata:
+  yelp-esdata:

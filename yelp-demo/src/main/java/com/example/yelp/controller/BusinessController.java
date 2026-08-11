@@ -4,8 +4,8 @@ import com.example.yelp.dto.BusinessDto;
 import com.example.yelp.dto.ReviewDto;
 import com.example.yelp.dto.SearchResult;
 import com.example.yelp.entity.Business;
-import com.example.yelp.service.BusinessService;
 import com.example.yelp.service.ReviewService;
+import com.example.yelp.service.SearchService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,17 +22,20 @@ import java.util.Map;
  *   GET  /api/businesses/{businessId}/reviews?page&size
  *   POST /api/businesses/{businessId}/reviews
  *   GET  /api/categories
+ *
+ * Delegates to {@link SearchService} — the active implementation (Postgres or Elasticsearch)
+ * is selected by the `search.backend` property in application.yml.
  */
 @RestController
 @RequestMapping("/api")
 @CrossOrigin(origins = "*")
 public class BusinessController {
 
-    private final BusinessService businessService;
+    private final SearchService searchService;
     private final ReviewService reviewService;
 
-    public BusinessController(BusinessService businessService, ReviewService reviewService) {
-        this.businessService = businessService;
+    public BusinessController(SearchService searchService, ReviewService reviewService) {
+        this.searchService = searchService;
         this.reviewService = reviewService;
     }
 
@@ -58,14 +61,14 @@ public class BusinessController {
             @RequestParam(required = false, defaultValue = "20") int size
     ) {
         if (lat != null && lon != null) {
-            // Geospatial search using PostGIS
-            return businessService.searchByGeo(query, lat, lon, radius, category, sortBy, page, size);
+            // Geospatial search (PostGIS or Elasticsearch geo_distance)
+            return searchService.searchByGeo(query, lat, lon, radius, category, sortBy, page, size);
         } else if (location != null && !location.isBlank()) {
             // Named location search using pre-computed locationNames
-            return businessService.searchByLocationName(query, location, category, page, size);
+            return searchService.searchByLocationName(query, location, category, page, size);
         } else {
-            // Default: search all (no geo filter) — use a large radius from a default point
-            return businessService.searchByLocationName(query, null, category, page, size);
+            // Default: search all (no geo filter)
+            return searchService.searchByLocationName(query, null, category, page, size);
         }
     }
 
@@ -74,9 +77,9 @@ public class BusinessController {
      */
     @GetMapping("/businesses/{businessId}")
     public ResponseEntity<?> getBusiness(@PathVariable Long businessId) {
-        return businessService.getById(businessId)
+        return searchService.getById(businessId)
                 .map(b -> {
-                    BusinessDto dto = businessService.toDto(b, null, null);
+                    BusinessDto dto = searchService.toDto(b, null, null);
                     List<ReviewDto> reviews = reviewService.getReviewsForBusiness(businessId, 0, 50);
                     Map<String, Object> response = new HashMap<>();
                     response.put("business", dto);
@@ -103,6 +106,6 @@ public class BusinessController {
      */
     @GetMapping("/categories")
     public List<String> getCategories() {
-        return businessService.getAllCategories();
+        return searchService.getAllCategories();
     }
 }

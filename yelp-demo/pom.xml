@@ -15,11 +15,12 @@
     <artifactId>yelp-demo</artifactId>
     <version>1.0.0</version>
     <name>yelp-demo</name>
-    <description>Yelp-like business search and review system (Spring Boot + PostGIS)</description>
+    <description>Yelp-like business search and review system (Spring Boot + PostGIS + Elasticsearch)</description>
 
     <properties>
         <java.version>21</java.version>
         <lombok.version>1.18.34</lombok.version>
+        <elasticsearch.version>8.14.0</elasticsearch.version>
     </properties>
 
     <dependencies>
@@ -67,6 +68,17 @@
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <!-- Elasticsearch Java Client (for optional ES search backend) -->
+        <dependency>
+            <groupId>co.elastic.clients</groupId>
+            <artifactId>elasticsearch-java</artifactId>
+            <version>${elasticsearch.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-reactor-netty</artifactId>
         </dependency>
 
         <!-- Test -->

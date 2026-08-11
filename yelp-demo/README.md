@@ -12,7 +12,7 @@ cd yelp-demo
 ```
 
 This will:
-1. Start PostgreSQL + PostGIS in Docker
+1. Start PostgreSQL + PostGIS **and** Elasticsearch in Docker
 2. Build the Spring Boot application
 3. Start the app on `http://localhost:8081`
 4. **Preload 20 businesses, 5 users, 60+ reviews, and 4 location areas**
@@ -23,6 +23,57 @@ Open **http://localhost:8081** in your browser.
 
 ```bash
 ./stop.sh
+```
+
+---
+
+## 🔍 Search Backend Selection
+
+The app supports **two interchangeable search backends** controlled by a single flag in `application.yml`:
+
+```yaml
+search:
+  backend: postgres        # ← change to "elasticsearch" to switch
+```
+
+| Backend | Value | Full-Text Search | Geo Search | Index |
+|---|---|---|---|---|
+| **PostgreSQL + PostGIS** (default) | `postgres` | PostgreSQL `tsvector` + GIN index | PostGIS `ST_DWithin` + GiST index | DB tables |
+| **Elasticsearch** | `elasticsearch` | ES analyzers (standard, english) + multi_match | ES `geo_distance` query + geo_point | ES index `businesses` |
+
+### How it works
+
+- `SearchService` interface defines the search contract
+- `PostgresSearchService` — active when `search.backend=postgres` (or missing)
+- `ElasticsearchSearchService` — active when `search.backend=elasticsearch`
+- Spring's `@ConditionalOnProperty` ensures only one implementation is loaded
+- `BusinessController`, `ReviewService`, and `DataInitializer` all depend on the `SearchService` interface — they're agnostic to the backend
+- When Elasticsearch is active, businesses are indexed into ES on startup and re-indexed whenever a review updates the rating
+- When Postgres is active, indexing calls are no-ops (data is searched directly from DB tables)
+
+### Switching to Elasticsearch
+
+1. Edit `src/main/resources/application.yml`:
+   ```yaml
+   search:
+     backend: elasticsearch
+   ```
+2. Restart the app: `./stop.sh && ./start.sh`
+3. The app will create the ES index, bulk-index all businesses, and serve search queries from Elasticsearch
+
+### Elasticsearch index mapping
+
+```
+businesses (index)
+  ├── name:          text (standard analyzer, boost 3.0)
+  ├── description:   text (english analyzer)
+  ├── category:      keyword
+  ├── address:       text (standard analyzer)
+  ├── location:      geo_point  [lon, lat]
+  ├── locationNames: keyword
+  ├── avgRating:     double
+  ├── numRatings:     integer
+  └── priceRange:    keyword
 ```
 
 ---
@@ -187,7 +238,7 @@ GET /api/categories
 yelp-demo/
 ├── start.sh                    # One-command startup
 ├── stop.sh                     # Stop everything
-├── docker-compose.yml          # PostgreSQL + PostGIS
+├── docker-compose.yml          # PostgreSQL + PostGIS + Elasticsearch
 ├── pom.xml                     # Maven config
 ├── mvnw / mvnw.cmd             # Maven wrapper
 ├── Yelp.md                     # Original design doc
@@ -206,8 +257,11 @@ yelp-demo/
         │   │   ├── UserRepository.java
         │   │   └── LocationAreaRepository.java
         │   ├── service/
-        │   │   ├── BusinessService.java  # Search pipeline + Haversine
-        │   │   └── ReviewService.java    # One-review constraint + sync avgRating
+        │   │   ├── SearchService.java           # Search backend interface
+        │   │   ├── PostgresSearchService.java   # PostGIS + tsvector implementation
+        │   │   ├── ElasticsearchSearchService.java # ES geo_point + multi_match
+        │   │   ├── BusinessService.java         # Deprecated (replaced by SearchService)
+        │   │   └── ReviewService.java           # One-review constraint + sync avgRating
         │   ├── controller/
         │   │   ├── BusinessController.java
         │   │   └── ReviewController.java
@@ -217,9 +271,9 @@ yelp-demo/
         │   │   ├── CreateReviewRequest.java
         │   │   └── SearchResult.java
         │   └── config/
-        │       └── DataInitializer.java  # PostGIS setup + data seeding
+        │       └── DataInitializer.java  # PostGIS setup + data seeding + ES re-index
         └── resources/
-            ├── application.yml
+            ├── application.yml          # search.backend flag here
             └── static/
                 └── index.html            # Yelp-like UI
 ```
@@ -254,6 +308,8 @@ yelp-demo/
 
 ### Why PostgreSQL + PostGIS instead of Elasticsearch?
 The design doc notes that staff-level candidates should recognize when simplicity wins. PostgreSQL with PostGIS handles both geospatial and full-text search in a single database. For 10M businesses, this is sufficient. Elasticsearch would add operational complexity and consistency challenges.
+
+**This demo now supports both backends** — switch via `search.backend` in `application.yml` to see how the same API works with either PostgreSQL or Elasticsearch under the hood. The `SearchService` interface abstracts the backend choice, so the controller and business logic remain unchanged.
 
 ### Why synchronous avgRating updates?
 The read:write ratio is ~1000:1. With 100M users, that's ~100K writes/day or ~1 write/second. Modern databases handle thousands of writes/second. A message queue would add complexity with no benefit.

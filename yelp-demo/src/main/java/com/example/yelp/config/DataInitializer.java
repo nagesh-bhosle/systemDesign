@@ -8,6 +8,7 @@ import com.example.yelp.repository.BusinessRepository;
 import com.example.yelp.repository.LocationAreaRepository;
 import com.example.yelp.repository.ReviewRepository;
 import com.example.yelp.repository.UserRepository;
+import com.example.yelp.service.SearchService;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,6 +28,7 @@ import java.util.Random;
  * 3. Create a GiST index on the geography point for fast ST_DWithin queries
  * 4. Create a GIN index on the search_vector for fast full-text queries
  * 5. Seed sample data: users, businesses, reviews, location areas
+ * 6. Re-index businesses into Elasticsearch (if ES backend is active)
  *
  * This makes the app "one command to run" — everything is preloaded.
  */
@@ -40,17 +42,20 @@ public class DataInitializer {
     private final ReviewRepository reviewRepository;
     private final UserRepository userRepository;
     private final LocationAreaRepository locationAreaRepository;
+    private final SearchService searchService;
 
     public DataInitializer(JdbcTemplate jdbcTemplate,
                            BusinessRepository businessRepository,
                            ReviewRepository reviewRepository,
                            UserRepository userRepository,
-                           LocationAreaRepository locationAreaRepository) {
+                           LocationAreaRepository locationAreaRepository,
+                           SearchService searchService) {
         this.jdbcTemplate = jdbcTemplate;
         this.businessRepository = businessRepository;
         this.reviewRepository = reviewRepository;
         this.userRepository = userRepository;
         this.locationAreaRepository = locationAreaRepository;
+        this.searchService = searchService;
     }
 
     @PostConstruct
@@ -138,6 +143,9 @@ public class DataInitializer {
                 "UPDATE businesses SET geom = ST_MakePoint(longitude, latitude)::geography " +
                 "WHERE geom IS NULL"
             );
+
+            // 9. Re-index all businesses into Elasticsearch (no-op for Postgres backend)
+            searchService.reindexAll(businessRepository.findAll());
 
         } catch (Exception e) {
             log.error("Data initialization failed: {}", e.getMessage(), e);

@@ -5,6 +5,22 @@
 server:
   port: 8081
 
+# ============================================================
+# Search backend selection
+# ============================================================
+# Set to "postgres"  → use PostgreSQL + PostGIS (default, existing setup)
+# Set to "elasticsearch" → use Elasticsearch for search + geo queries
+# ============================================================
+search:
+  backend: postgres
+
+# Elasticsearch connection (used only when search.backend = elasticsearch)
+elasticsearch:
+  host: localhost
+  port: 9200
+  scheme: http
+  index: businesses
+
 spring:
   application:
     name: yelp-demo
