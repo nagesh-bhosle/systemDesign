@@ -1,0 +1,21 @@
+services:
+  yelp-db:
+    image: postgis/postgis:16-3.4
+    container_name: yelp-postgres
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: yelp
+      POSTGRES_USER: yelp
+      POSTGRES_PASSWORD: yelp123
+    volumes:
+      - yelp-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yelp -d yelp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  yelp-pgdata:

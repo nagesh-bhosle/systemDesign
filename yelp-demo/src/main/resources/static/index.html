@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yelp Demo — Business Search & Reviews</title>
+    <style>
+        :root {
+            --primary: #d32323;
+            --primary-dark: #af0606;
+            --primary-light: #f5f1e9;
+            --star: #f15a24;
+            --bg: #f5f5f5;
+            --card: #ffffff;
+            --border: #e6e6e6;
+            --text: #333333;
+            --text-muted: #999999;
+            --success: #2ecc71;
+            --danger: #e74c3c;
+            --shadow: 0 1px 3px rgba(0,0,0,0.08);
+            --shadow-lg: 0 4px 12px rgba(0,0,0,0.1);
+            --radius: 8px;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        /* Header */
+        header {
+            background: var(--primary);
+            color: white;
+            padding: 14px 24px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            box-shadow: var(--shadow);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        header .logo {
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: -1px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        header .logo span { font-size: 32px; }
+        header .subtitle {
+            font-size: 13px;
+            opacity: 0.8;
+            margin-left: 8px;
+        }
+        header .spacer { flex: 1; }
+        header .badge {
+            background: rgba(255,255,255,0.2);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        /* Search Bar */
+        .search-container {
+            background: var(--card);
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .search-group {
+            display: flex;
+            align-items: center;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+            flex: 1;
+            min-width: 200px;
+        }
+        .search-group .icon {
+            padding: 0 12px;
+            color: var(--primary);
+            font-size: 18px;
+        }
+        .search-group input, .search-group select {
+            border: none;
+            padding: 12px 8px;
+            font-size: 14px;
+            outline: none;
+            flex: 1;
+            background: transparent;
+        }
+        .search-group .divider {
+            width: 1px;
+            height: 24px;
+            background: var(--border);
+        }
+        .btn-search {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 12px 28px;
+            border-radius: var(--radius);
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-search:hover { background: var(--primary-dark); }
+
+        /* Quick location buttons */
+        .quick-locations {
+            padding: 12px 24px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .quick-locations label {
+            font-size: 13px;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+        .loc-btn {
+            background: white;
+            border: 1px solid var(--border);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .loc-btn:hover { border-color: var(--primary); color: var(--primary); }
+        .loc-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+
+        /* Main content */
+        .main-content {
+            display: flex;
+            gap: 0;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0;
+        }
+
+        /* Results list */
+        .results-panel {
+            flex: 1;
+            padding: 16px;
+        }
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .results-header h2 {
+            font-size: 18px;
+            font-weight: 700;
+        }
+        .results-header .count {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+        .sort-select {
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 6px 10px;
+            font-size: 13px;
+            cursor: pointer;
+            outline: none;
+        }
+
+        /* Business card */
+        .business-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px;
+            margin-bottom: 12px;
+            cursor: pointer;
+            transition: box-shadow 0.2s, transform 0.1s;
+            display: flex;
+            gap: 14px;
+        }
+        .business-card:hover {
+            box-shadow: var(--shadow-lg);
+            transform: translateY(-1px);
+        }
+        .business-card .image {
+            font-size: 48px;
+            width: 80px;
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--primary-light);
+            border-radius: var(--radius);
+            flex-shrink: 0;
+        }
+        .business-card .info { flex: 1; }
+        .business-card .name {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        .business-card .meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+            font-size: 13px;
+        }
+        .stars { color: var(--star); letter-spacing: 2px; }
+        .rating-num { font-weight: 700; }
+        .review-count { color: var(--text-muted); }
+        .business-card .category {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+        .business-card .address {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+        .business-card .distance {
+            font-size: 12px;
+            color: var(--primary);
+            font-weight: 600;
+            margin-top: 4px;
+        }
+        .price-tag {
+            background: var(--primary-light);
+            color: var(--primary);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        /* Detail panel */
+        .detail-panel {
+            flex: 0 0 420px;
+            background: var(--card);
+            border-left: 1px solid var(--border);
+            padding: 20px;
+            display: none;
+            overflow-y: auto;
+            max-height: calc(100vh - 140px);
+            position: sticky;
+            top: 120px;
+        }
+        .detail-panel.active { display: block; }
+        .detail-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 16px;
+        }
+        .detail-header h2 {
+            font-size: 22px;
+            font-weight: 800;
+        }
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: var(--text-muted);
+            padding: 0;
+            line-height: 1;
+        }
+        .close-btn:hover { color: var(--text); }
+        .detail-image {
+            font-size: 64px;
+            text-align: center;
+            padding: 24px;
+            background: var(--primary-light);
+            border-radius: var(--radius);
+            margin-bottom: 16px;
+        }
+        .detail-meta {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+            font-size: 14px;
+        }
+        .detail-description {
+            font-size: 14px;
+            line-height: 1.6;
+            color: #555;
+            margin-bottom: 16px;
+        }
+        .detail-info-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        .detail-info-row .label {
+            font-weight: 600;
+            min-width: 80px;
+        }
+
+        /* Reviews section */
+        .reviews-section {
+            margin-top: 24px;
+        }
+        .reviews-section h3 {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid var(--border);
+        }
+        .review-card {
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .review-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .review-avatar {
+            font-size: 24px;
+        }
+        .review-author {
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .review-date {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .review-rating {
+            color: var(--star);
+            font-size: 14px;
+            letter-spacing: 2px;
+            margin-bottom: 4px;
+        }
+        .review-text {
+            font-size: 14px;
+            line-height: 1.5;
+            color: #555;
+        }
+
+        /* Review form */
+        .review-form {
+            background: var(--primary-light);
+            border-radius: var(--radius);
+            padding: 16px;
+            margin-top: 16px;
+        }
+        .review-form h4 {
+            font-size: 15px;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+        .review-form .form-group {
+            margin-bottom: 12px;
+        }
+        .review-form label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .review-form select, .review-form textarea, .review-form input {
+            width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px 10px;
+            font-size: 14px;
+            outline: none;
+            font-family: inherit;
+        }
+        .review-form textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+        .star-rating {
+            display: flex;
+            gap: 4px;
+            font-size: 24px;
+            cursor: pointer;
+        }
+        .star-rating span {
+            color: #ddd;
+            transition: color 0.15s;
+            user-select: none;
+        }
+        .star-rating span.active { color: var(--star); }
+        .btn-submit {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            border-radius: var(--radius);
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            width: 100%;
+            transition: background 0.2s;
+        }
+        .btn-submit:hover { background: var(--primary-dark); }
+        .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Loading & empty states */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-muted);
+            font-size: 16px;
+        }
+        .loading .spinner {
+            display: inline-block;
+            width: 32px;
+            height: 32px;
+            border: 3px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-bottom: 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-muted);
+        }
+        .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: #333;
+            color: white;
+            padding: 12px 20px;
+            border-radius: var(--radius);
+            font-size: 14px;
+            box-shadow: var(--shadow-lg);
+            z-index: 1000;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s;
+        }
+        .toast.show { opacity: 1; transform: translateY(0); }
+        .toast.error { background: var(--danger); }
+        .toast.success { background: var(--success); }
+
+        /* Info banner */
+        .info-banner {
+            background: #e7f4ff;
+            border: 1px solid #b8dbff;
+            border-radius: var(--radius);
+            padding: 12px 16px;
+            margin: 12px 24px;
+            font-size: 13px;
+            color: #0066cc;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .info-banner code {
+            background: #d0e8ff;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .main-content { flex-direction: column; }
+            .detail-panel {
+                flex: 1;
+                border-left: none;
+                border-top: 1px solid var(--border);
+                position: static;
+                max-height: none;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="logo"><span>🍴</span> Yelp Demo</div>
+    <div class="subtitle">System Design Learning Project</div>
+    <div class="spacer"></div>
+    <div class="badge" id="dbStatus">Connecting...</div>
+</header>
+
+<!-- Search Bar -->
+<div class="search-container">
+    <div class="search-group">
+        <span class="icon">🔍</span>
+        <input type="text" id="queryInput" placeholder="Search businesses (e.g. pizza, coffee, tacos)" />
+        <div class="divider"></div>
+        <span class="icon">📍</span>
+        <input type="text" id="locationInput" placeholder="Location name (e.g. san_francisco)" />
+        <div class="divider"></div>
+        <select id="categoryFilter">
+            <option value="">All Categories</option>
+        </select>
+    </div>
+    <button class="btn-search" onclick="search()">Search</button>
+</div>
+
+<!-- Quick location buttons -->
+<div class="quick-locations">
+    <label>Quick locations:</label>
+    <button class="loc-btn" onclick="quickSearch('san_francisco')">San Francisco</button>
+    <button class="loc-btn" onclick="quickSearch('mission_district')">Mission District</button>
+    <button class="loc-btn" onclick="quickSearch('manhattan')">Manhattan</button>
+    <button class="loc-btn" onclick="quickSearch(null, 37.7522, -122.4157)">📍 Near Mission (geo)</button>
+    <button class="loc-btn" onclick="quickSearch(null, 40.7308, -74.0023)">📍 Near Village (geo)</button>
+</div>
+
+<!-- Info banner -->
+<div class="info-banner">
+    💡 <strong>Try this:</strong> Search "pizza" with location "manhattan" to see full-text + location filtering.
+    Or click <code>📍 Near Mission (geo)</code> to see PostGIS geospatial search with distance calculation.
+</div>
+
+<!-- Main Content -->
+<div class="main-content">
+    <!-- Results Panel -->
+    <div class="results-panel">
+        <div class="results-header">
+            <h2 id="resultsTitle">All Businesses</h2>
+            <div style="display:flex;align-items:center;gap:12px;">
+                <span class="count" id="resultsCount"></span>
+                <select class="sort-select" id="sortBy" onchange="search()">
+                    <option value="rating">Sort: Rating</option>
+                    <option value="distance">Sort: Distance</option>
+                </select>
+            </div>
+        </div>
+        <div id="resultsContainer">
+            <div class="loading"><div class="spinner"></div><br>Loading businesses...</div>
+        </div>
+    </div>
+
+    <!-- Detail Panel -->
+    <div class="detail-panel" id="detailPanel">
+        <div id="detailContent"></div>
+    </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+    const API = '/api';
+    let selectedRating = 5;
+    let currentUser = 1; // Default user for reviews
+
+    // --- Init ---
+    document.addEventListener('DOMContentLoaded', () => {
+        loadCategories();
+        search();
+        document.getElementById('queryInput').addEventListener('keypress', e => {
+            if (e.key === 'Enter') search();
+        });
+        document.getElementById('locationInput').addEventListener('keypress', e => {
+            if (e.key === 'Enter') search();
+        });
+        // Check DB status
+        fetch(API + '/categories').then(r => {
+            if (r.ok) document.getElementById('dbStatus').textContent = '● Connected';
+        }).catch(() => document.getElementById('dbStatus').textContent = '● Error');
+    });
+
+    // --- Load categories ---
+    async function loadCategories() {
+        try {
+            const res = await fetch(API + '/categories');
+            const categories = await res.json();
+            const select = document.getElementById('categoryFilter');
+            categories.forEach(cat => {
+                const option = document.createElement('option');
+                option.value = cat;
+                option.textContent = cat.charAt(0).toUpperCase() + cat.slice(1);
+                select.appendChild(option);
+            });
+        } catch (e) { console.error('Failed to load categories:', e); }
+    }
+
+    // --- Search ---
+    async function search() {
+        const query = document.getElementById('queryInput').value.trim();
+        const location = document.getElementById('locationInput').value.trim();
+        const category = document.getElementById('categoryFilter').value;
+        const sortBy = document.getElementById('sortBy').value;
+
+        let url = API + '/businesses?page=0&size=50&sortBy=' + sortBy;
+        if (query) url += '&query=' + encodeURIComponent(query);
+        if (location) url += '&location=' + encodeURIComponent(location);
+        if (category) url += '&category=' + encodeURIComponent(category);
+
+        document.getElementById('resultsContainer').innerHTML =
+            '<div class="loading"><div class="spinner"></div><br>Searching...</div>';
+
+        try {
+            const res = await fetch(url);
+            const data = await res.json();
+            renderResults(data, query, location);
+        } catch (e) {
+            document.getElementById('resultsContainer').innerHTML =
+                '<div class="empty-state"><div class="icon">⚠️</div>Failed to load results. Is the database running?</div>';
+            console.error(e);
+        }
+    }
+
+    // --- Quick search by location ---
+    function quickSearch(locationName, lat, lon) {
+        // Highlight active button
+        document.querySelectorAll('.loc-btn').forEach(b => b.classList.remove('active'));
+        if (locationName) {
+            document.getElementById('locationInput').value = locationName;
+            document.getElementById('queryInput').value = '';
+            search();
+            event.target.classList.add('active');
+        } else if (lat && lon) {
+            // Geo search — use the API directly
+            geoSearch(lat, lon);
+            event.target.classList.add('active');
+        }
+    }
+
+    async function geoSearch(lat, lon) {
+        const query = document.getElementById('queryInput').value.trim();
+        const category = document.getElementById('categoryFilter').value;
+        const sortBy = document.getElementById('sortBy').value;
+        let url = API + '/businesses?lat=' + lat + '&lon=' + lon + '&radius=10000&sortBy=' + sortBy + '&page=0&size=50';
+        if (query) url += '&query=' + encodeURIComponent(query);
+        if (category) url += '&category=' + encodeURIComponent(category);
+
+        document.getElementById('resultsContainer').innerHTML =
+            '<div class="loading"><div class="spinner"></div><br>Searching by location...</div>';
+
+        try {
+            const res = await fetch(url);
+            const data = await res.json();
+            renderResults(data, query, 'geo:' + lat + ',' + lon);
+        } catch (e) {
+            showToast('Search failed', 'error');
+        }
+    }
+
+    // --- Render results ---
+    function renderResults(data, query, location) {
+        const container = document.getElementById('resultsContainer');
+        const countEl = document.getElementById('resultsCount');
+        const titleEl = document.getElementById('resultsTitle');
+
+        if (!data.results || data.results.length === 0) {
+            container.innerHTML = '<div class="empty-state"><div class="icon">🔍</div>No businesses found. Try a different search.</div>';
+            countEl.textContent = '0 results';
+            return;
+        }
+
+        countEl.textContent = data.total + ' result' + (data.total !== 1 ? 's' : '');
+        titleEl.textContent = query ? `"${query}" results` : 'All Businesses';
+
+        container.innerHTML = data.results.map(b => `
+            <div class="business-card" onclick="viewBusiness(${b.id})">
+                <div class="image">${b.imageUrl || '🏪'}</div>
+                <div class="info">
+                    <div class="name">${b.name}</div>
+                    <div class="meta">
+                        <span class="stars">${renderStars(b.avgRating)}</span>
+                        <span class="rating-num">${b.avgRating > 0 ? b.avgRating.toFixed(1) : 'New'}</span>
+                        <span class="review-count">(${b.numRatings} review${b.numRatings !== 1 ? 's' : ''})</span>
+                        ${b.priceRange ? `<span class="price-tag">${b.priceRange}</span>` : ''}
+                    </div>
+                    <div class="category">${b.category}</div>
+                    <div class="address">${b.address}</div>
+                    ${b.distanceMeters != null ? `<div class="distance">📍 ${formatDistance(b.distanceMeters)} away</div>` : ''}
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // --- View business detail ---
+    async function viewBusiness(id) {
+        const panel = document.getElementById('detailPanel');
+        const content = document.getElementById('detailContent');
+        panel.classList.add('active');
+        content.innerHTML = '<div class="loading"><div class="spinner"></div><br>Loading...</div>';
+
+        try {
+            const res = await fetch(API + '/businesses/' + id);
+            const data = await res.json();
+            renderDetail(data);
+        } catch (e) {
+            content.innerHTML = '<div class="empty-state">Failed to load</div>';
+        }
+    }
+
+    function renderDetail(data) {
+        const b = data.business;
+        const reviews = data.reviews || [];
+        const content = document.getElementById('detailContent');
+
+        content.innerHTML = `
+            <div class="detail-header">
+                <h2>${b.name}</h2>
+                <button class="close-btn" onclick="closeDetail()">×</button>
+            </div>
+            <div class="detail-image">${b.imageUrl || '🏪'}</div>
+            <div class="detail-meta">
+                <span class="stars">${renderStars(b.avgRating)}</span>
+                <span class="rating-num">${b.avgRating > 0 ? b.avgRating.toFixed(1) : 'New'}</span>
+                <span class="review-count">${b.numRatings} review${b.numRatings !== 1 ? 's' : ''}</span>
+                ${b.priceRange ? `<span class="price-tag">${b.priceRange}</span>` : ''}
+            </div>
+            <div class="detail-description">${b.description || 'No description available.'}</div>
+            <div class="detail-info-row"><span class="label">Category:</span> ${b.category}</div>
+            <div class="detail-info-row"><span class="label">Address:</span> ${b.address}</div>
+            <div class="detail-info-row"><span class="label">Phone:</span> ${b.phone || 'N/A'}</div>
+            <div class="detail-info-row"><span class="label">Location:</span> ${b.latitude?.toFixed(4)}, ${b.longitude?.toFixed(4)}</div>
+            ${b.locationNames && b.locationNames.length > 0 ? `<div class="detail-info-row"><span class="label">Areas:</span> ${b.locationNames.join(', ')}</div>` : ''}
+
+            <div class="reviews-section">
+                <h3>Reviews (${reviews.length})</h3>
+                <div id="reviewsList">
+                    ${reviews.length === 0 ? '<p style="color:#999;padding:12px 0;">No reviews yet. Be the first!</p>' :
+                    reviews.map(r => `
+                        <div class="review-card">
+                            <div class="review-header">
+                                <span class="review-avatar">👤</span>
+                                <span class="review-author">${r.userDisplayName}</span>
+                                <span class="review-date">${formatDate(r.createdAt)}</span>
+                            </div>
+                            <div class="review-rating">${renderStars(r.rating)}</div>
+                            ${r.text ? `<div class="review-text">${r.text}</div>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+
+                <div class="review-form">
+                    <h4>Write a Review</h4>
+                    <div class="form-group">
+                        <label>User</label>
+                        <select id="reviewUser">
+                            <option value="1">Alice Chen</option>
+                            <option value="2">Bob Martinez</option>
+                            <option value="3">Carol Johnson</option>
+                            <option value="4">Dave Kim</option>
+                            <option value="5">Eve Patel</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Rating</label>
+                        <div class="star-rating" id="starRating">
+                            <span data-val="1" onclick="setRating(1)">★</span>
+                            <span data-val="2" onclick="setRating(2)">★</span>
+                            <span data-val="3" onclick="setRating(3)">★</span>
+                            <span data-val="4" onclick="setRating(4)">★</span>
+                            <span data-val="5" onclick="setRating(5)" class="active">★</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Review (optional)</label>
+                        <textarea id="reviewText" placeholder="Share your experience..."></textarea>
+                    </div>
+                    <button class="btn-submit" onclick="submitReview(${b.id})">Post Review</button>
+                </div>
+            </div>
+        `;
+    }
+
+    // --- Submit review ---
+    async function submitReview(businessId) {
+        const userId = parseInt(document.getElementById('reviewUser').value);
+        const text = document.getElementById('reviewText').value.trim();
+
+        try {
+            const res = await fetch(API + '/businesses/' + businessId + '/reviews', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId, rating: selectedRating, text: text || null })
+            });
+
+            if (res.status === 201) {
+                showToast('Review posted! ⭐', 'success');
+                viewBusiness(businessId); // Reload to show new review
+                search(); // Refresh results to update avg rating
+            } else if (res.status === 409) {
+                showToast('You already reviewed this business!', 'error');
+            } else {
+                const err = await res.json();
+                showToast(err.error || 'Failed to post review', 'error');
+            }
+        } catch (e) {
+            showToast('Network error', 'error');
+        }
+    }
+
+    // --- Helpers ---
+    function setRating(val) {
+        selectedRating = val;
+        document.querySelectorAll('#starRating span').forEach(s => {
+            s.classList.toggle('active', parseInt(s.dataset.val) <= val);
+        });
+    }
+
+    function renderStars(rating) {
+        if (!rating || rating === 0) return '☆☆☆☆☆';
+        const full = Math.round(rating);
+        return '★'.repeat(full) + '☆'.repeat(5 - full);
+    }
+
+    function formatDistance(meters) {
+        if (meters < 1000) return Math.round(meters) + ' m';
+        return (meters / 1000).toFixed(1) + ' km';
+    }
+
+    function formatDate(dateStr) {
+        if (!dateStr) return '';
+        const d = new Date(dateStr);
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function closeDetail() {
+        document.getElementById('detailPanel').classList.remove('active');
+    }
+
+    function showToast(msg, type) {
+        const toast = document.getElementById('toast');
+        toast.textContent = msg;
+        toast.className = 'toast show ' + (type || '');
+        setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+</script>
+
+</body>
+</html>

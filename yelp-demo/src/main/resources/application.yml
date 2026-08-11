@@ -1,0 +1,37 @@
+# ============================================================
+# Spring Boot configuration for Yelp Demo
+# ============================================================
+
+server:
+  port: 8081
+
+spring:
+  application:
+    name: yelp-demo
+
+  # --- PostgreSQL + PostGIS ---
+  datasource:
+    url: jdbc:postgresql://localhost:5433/yelp
+    driver-class-name: org.postgresql.Driver
+    username: yelp
+    password: yelp123
+
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  # Auto-start the app even if DB is slow to come up
+  datasource.hikari:
+    maximum-pool-size: 10
+    connection-timeout: 30000
+
+# --- Logging ---
+logging:
+  level:
+    com.example.yelp: INFO
+    org.hibernate.SQL: WARN
