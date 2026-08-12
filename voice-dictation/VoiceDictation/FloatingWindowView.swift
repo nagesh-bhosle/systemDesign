@@ -9,6 +9,14 @@
 
 import SwiftUI
 
+// PreferenceKey to report the SwiftUI content size to the NSPanel
+struct ViewSizeKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        value = nextValue()
+    }
+}
+
 struct FloatingWindowView: View {
     @EnvironmentObject var appState: AppState
     @State private var isHovered: Bool = false
@@ -188,6 +196,14 @@ struct FloatingWindowView: View {
             withAnimation(.easeInOut(duration: 0.2)) {
                 isHovered = hovering
             }
+        }
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: ViewSizeKey.self, value: geo.size)
+            }
+        )
+        .onPreferenceChange(ViewSizeKey.self) { newSize in
+            FloatingWindowController.shared.resizePanel(to: newSize)
         }
     }
 

@@ -32,7 +32,7 @@ final class FloatingWindowController: ObservableObject {
 
             panel = NSPanel(
                 contentRect: panelFrame,
-                styleMask: [.borderless, .nonactivatingPanel],
+                styleMask: [.borderless, .nonactivatingPanel, .resizable],
                 backing: .buffered,
                 defer: false
             )
@@ -48,8 +48,9 @@ final class FloatingWindowController: ObservableObject {
             panel?.worksWhenModal = true
             panel?.contentViewController = hostingController
 
-            // Make panel accept mouse events (critical for button clicks in nonactivating panel)
-            panel?.styleMask = [.borderless, .nonactivatingPanel]
+            // Allow panel to resize to fit content
+            panel?.contentMinSize = NSSize(width: 160, height: 40)
+            panel?.contentMaxSize = NSSize(width: 340, height: 500)
             panel?.canBecomeVisibleWithoutLogin = true
 
             // Position: top-center of screen
@@ -68,6 +69,18 @@ final class FloatingWindowController: ObservableObject {
     func hideWindow() {
         panel?.orderOut(nil)
         isVisible = false
+    }
+
+    /// Resize the panel to fit its SwiftUI content.
+    /// Called from FloatingWindowView via ViewSizeKey preference.
+    func resizePanel(to size: CGSize) {
+        guard let panel = panel else { return }
+        let currentFrame = panel.frame
+        // Keep the top-left corner fixed (panel grows downward from top)
+        let newHeight = max(size.height + 4, 40)  // small padding
+        let newY = currentFrame.maxY - newHeight
+        let newFrame = NSRect(x: currentFrame.minX, y: newY, width: currentFrame.width, height: newHeight)
+        panel.setFrame(newFrame, display: true, animate: false)
     }
 
     func toggleWindow(appState: AppState) {
