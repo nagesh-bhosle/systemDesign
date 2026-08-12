@@ -48,9 +48,9 @@ final class FloatingWindowController: ObservableObject {
             panel?.worksWhenModal = true
             panel?.contentViewController = hostingController
 
-            // Allow panel to resize to fit content
+            // Allow panel to resize width for hover expansion, but keep height fixed
             panel?.contentMinSize = NSSize(width: 160, height: 40)
-            panel?.contentMaxSize = NSSize(width: 340, height: 500)
+            panel?.contentMaxSize = NSSize(width: 340, height: 40)
             panel?.canBecomeVisibleWithoutLogin = true
 
             // Position: top-center of screen
@@ -73,14 +73,20 @@ final class FloatingWindowController: ObservableObject {
 
     /// Resize the panel to fit its SwiftUI content.
     /// Called from FloatingWindowView via ViewSizeKey preference.
+    /// Only width changes (hover expands buttons) — height stays fixed
+    /// so the window shape doesn't change during recording.
     func resizePanel(to size: CGSize) {
         guard let panel = panel else { return }
         let currentFrame = panel.frame
-        // Keep the top-left corner fixed (panel grows downward from top)
-        let newHeight = max(size.height + 4, 40)  // small padding
-        let newY = currentFrame.maxY - newHeight
-        let newFrame = NSRect(x: currentFrame.minX, y: newY, width: currentFrame.width, height: newHeight)
-        panel.setFrame(newFrame, display: true, animate: false)
+        // Keep height fixed at the initial compact bar height
+        let fixedHeight: CGFloat = 40
+        // Only adjust width to match content, keep position and height stable
+        let newWidth = currentFrame.width
+        let newFrame = NSRect(x: currentFrame.minX, y: currentFrame.minY, width: newWidth, height: fixedHeight)
+        // Only update if height is wrong (don't trigger unnecessary redraws)
+        if abs(currentFrame.height - fixedHeight) > 1 {
+            panel.setFrame(newFrame, display: true, animate: false)
+        }
     }
 
     func toggleWindow(appState: AppState) {
