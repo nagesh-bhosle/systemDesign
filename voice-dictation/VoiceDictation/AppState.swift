@@ -59,6 +59,7 @@ final class AppState: ObservableObject {
     private let speechRecognizer = SpeechRecognizerService()
     private let llmService = AbacusLLMService()
     private var rawTranscript: String = ""
+    private var llmTimedOut: Bool = false
 
     private func startRecording() {
         errorMessage = ""
@@ -129,8 +130,26 @@ final class AppState: ObservableObject {
 
         // Enhance text via Abacus LLM
         status = .enhancing
+        llmTimedOut = false
+        
+        // Timeout: if LLM takes more than 12 seconds, use raw transcript
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in
+            guard let self = self, self.status == .enhancing, !self.llmTimedOut else { return }
+            print("⚠️ LLM enhancement timed out — using raw transcript")
+            self.llmTimedOut = true
+            self.lastTranscript = trimmed
+            self.saveToHistory(text: trimmed)
+            TextInserter.shared.insertOrCopy(trimmed)
+            self.status = .idle
+            self.hideFloatingWindow()
+            self.errorMessage = "LLM cleanup timed out (used raw text)"
+        }
+        
         llmService.enhanceText(text: trimmed, apiKey: apiKey) { result in
             DispatchQueue.main.async {
+                // Skip if already timed out
+                guard !self.llmTimedOut else { return }
+                
                 switch result {
                 case .success(let enhanced):
                     self.lastTranscript = enhanced

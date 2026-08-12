@@ -18,7 +18,7 @@ final class AbacusLLMService {
         model: String = "gpt-4o-mini",
         completion: @escaping (Result<String, Error>) -> Void
     ) {
-        var request = URLRequest(url: endpoint)
+        var request = URLRequest(url: endpoint, timeoutInterval: 15)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
