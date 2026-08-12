@@ -3,15 +3,15 @@
 //  VoiceDictation
 //
 //  WisprFlow-inspired compact floating bar.
-//  Transparent pill that floats above all windows with action buttons:
-//  Record/Stop, Copy, Create Note, Expand, Close.
+//  Small pill by default, expands on hover with action buttons:
+//  Record/Stop, Copy, Create Note, Close.
 //
 
 import SwiftUI
 
 struct FloatingWindowView: View {
     @EnvironmentObject var appState: AppState
-    @State private var isExpanded: Bool = false
+    @State private var isHovered: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -66,79 +66,68 @@ struct FloatingWindowView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                // ── Action buttons ──
-                HStack(spacing: 6) {
-                    // Record / Stop button
-                    Button(action: {
-                        appState.toggleRecording()
-                    }) {
-                        Image(systemName: appState.status == .recording ? "stop.fill" : "mic.fill")
-                            .font(.system(size: 14))
-                            .foregroundColor(appState.status == .recording ? .red : .accentColor)
-                            .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(.borderless)
-                    .help(appState.status == .recording ? "Stop & Transcribe" : "Start Recording")
-                    .disabled(appState.status == .transcribing || appState.status == .enhancing)
-
-                    // Copy button
-                    Button(action: {
-                        copyToClipboard(appState.lastTranscript)
-                    }) {
-                        Image(systemName: "doc.on.doc")
-                            .font(.system(size: 14))
-                            .foregroundColor(.primary)
-                            .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Copy last transcript")
-                    .disabled(appState.lastTranscript.isEmpty)
-
-                    // Create Note button
-                    Button(action: {
-                        createNote()
-                    }) {
-                        Image(systemName: "note.text")
-                            .font(.system(size: 14))
-                            .foregroundColor(.primary)
-                            .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Create Note in Apple Notes")
-                    .disabled(appState.lastTranscript.isEmpty)
-
-                    // Expand/collapse button
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isExpanded.toggle()
+                // ── Action buttons (only show on hover) ──
+                if isHovered {
+                    HStack(spacing: 6) {
+                        // Record / Stop button
+                        Button(action: {
+                            appState.toggleRecording()
+                        }) {
+                            Image(systemName: appState.status == .recording ? "stop.fill" : "mic.fill")
+                                .font(.system(size: 14))
+                                .foregroundColor(appState.status == .recording ? .red : .accentColor)
+                                .frame(width: 28, height: 28)
                         }
-                    }) {
-                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
-                            .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(.borderless)
-                    .help(isExpanded ? "Hide details" : "Show details")
+                        .buttonStyle(.borderless)
+                        .help(appState.status == .recording ? "Stop & Transcribe" : "Start Recording")
+                        .disabled(appState.status == .transcribing || appState.status == .enhancing)
 
-                    // Close button
-                    Button(action: {
-                        FloatingWindowController.shared.hideWindow()
-                    }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
-                            .frame(width: 28, height: 28)
+                        // Copy button
+                        Button(action: {
+                            copyToClipboard(appState.lastTranscript)
+                        }) {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 14))
+                                .foregroundColor(.primary)
+                                .frame(width: 28, height: 28)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Copy last transcript")
+                        .disabled(appState.lastTranscript.isEmpty)
+
+                        // Create Note button
+                        Button(action: {
+                            createNote()
+                        }) {
+                            Image(systemName: "note.text")
+                                .font(.system(size: 14))
+                                .foregroundColor(.primary)
+                                .frame(width: 28, height: 28)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Create Note in Apple Notes")
+                        .disabled(appState.lastTranscript.isEmpty)
+
+                        // Close button
+                        Button(action: {
+                            FloatingWindowController.shared.hideWindow()
+                        }) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                                .frame(width: 28, height: 28)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Close floating bar")
                     }
-                    .buttonStyle(.borderless)
-                    .help("Close floating bar")
+                    .transition(.scale.combined(with: .opacity))
                 }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
 
-            // ── Expanded section ──
-            if isExpanded {
+            // ── Expanded section (only on hover, shows transcript) ──
+            if isHovered && (appState.status == .recording || !appState.lastTranscript.isEmpty || !appState.errorMessage.isEmpty) {
                 Divider()
                     .opacity(0.3)
 
@@ -171,38 +160,6 @@ struct FloatingWindowView: View {
                                 .textSelection(.enabled)
                         }
                         .frame(maxHeight: 100)
-
-                        // Action row
-                        HStack(spacing: 8) {
-                            Button(action: {
-                                copyToClipboard(appState.lastTranscript)
-                            }) {
-                                Label("Copy", systemImage: "doc.on.doc")
-                                    .font(.caption)
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-
-                            Button(action: {
-                                createNote()
-                            }) {
-                                Label("Note", systemImage: "note.text")
-                                    .font(.caption)
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-
-                            Button(action: {
-                                appState.toggleRecording()
-                            }) {
-                                Label("Record", systemImage: "mic.fill")
-                                    .font(.caption)
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-
-                            Spacer()
-                        }
                     }
 
                     // Error message
@@ -218,10 +175,16 @@ struct FloatingWindowView: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .frame(width: 380)
+        .frame(width: isHovered ? 380 : 200)
         .background(.ultraThinMaterial)
         .cornerRadius(16)
         .shadow(radius: 6)
+        .animation(.easeInOut(duration: 0.2), value: isHovered)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isHovered = hovering
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .toggleDictation)) { _ in
             appState.toggleRecording()
         }
@@ -231,8 +194,10 @@ struct FloatingWindowView: View {
 
     private func copyToClipboard(_ text: String) {
         guard !text.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        DispatchQueue.main.async {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        }
     }
 
     private func createNote() {

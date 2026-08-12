@@ -44,7 +44,13 @@ final class FloatingWindowController: ObservableObject {
             panel?.backgroundColor = .clear
             panel?.isMovableByWindowBackground = true
             panel?.hidesOnDeactivate = false
+            panel?.becomesKeyOnlyIfNeeded = false
+            panel?.worksWhenModal = true
             panel?.contentViewController = hostingController
+
+            // Make panel accept mouse events (critical for button clicks in nonactivating panel)
+            panel?.styleMask = [.borderless, .nonactivatingPanel]
+            panel?.canBecomeVisibleWithoutLogin = true
 
             // Position: top-center of screen
             if let screen = NSScreen.main {
