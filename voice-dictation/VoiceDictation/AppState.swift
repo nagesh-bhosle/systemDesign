@@ -50,6 +50,9 @@ final class AppState: ObservableObject {
     @Published var launchAtLogin: Bool = LaunchAtLoginHelper.isEnabled
     @Published var launchAtLoginError: String = ""
     @Published var showOnboarding: Bool = false
+    @Published var microphoneGranted: Bool = false
+    @Published var speechGranted: Bool = false
+    @Published var accessibilityGranted: Bool = false
     @Published var llmModel: String = UserDefaults.standard.string(forKey: "llmModel") ?? AbacusLLMService.defaultModel
     @Published var llmEndpoint: String = UserDefaults.standard.string(forKey: "llmEndpoint") ?? "https://routellm.abacus.ai/v1/chat/completions"
     @Published var history: [TranscriptEntry] = TranscriptHistory.shared.loadHistory()
@@ -81,10 +84,7 @@ final class AppState: ObservableObject {
             localeIdentifier: speechLocale,
             requiresOnDevice: onDeviceRecognition
         )
-
-        if !UserDefaults.standard.bool(forKey: UserDefaultsKey.hasCompletedOnboarding) {
-            showOnboarding = true
-        }
+        refreshPermissionState()
     }
 
     // MARK: - Preferences
@@ -168,18 +168,26 @@ final class AppState: ObservableObject {
         OnboardingWindowController.shared.show(appState: self)
     }
 
-    func checkPermissionsAndShowOnboardingIfNeeded() {
-        if !UserDefaults.standard.bool(forKey: UserDefaultsKey.hasCompletedOnboarding) {
-            showOnboarding = true
-            return
-        }
-        if PermissionHelper.isMicrophoneDenied || PermissionHelper.isSpeechDenied {
-            showOnboarding = true
+    func evaluateOnboardingOnLaunch() {
+        PermissionHelper.probePermissions { [weak self] in
+            guard let self else { return }
+            self.refreshPermissionState()
+
+            if self.microphoneGranted && self.speechGranted {
+                if !UserDefaults.standard.bool(forKey: UserDefaultsKey.hasCompletedOnboarding) {
+                    self.completeOnboarding()
+                }
+                return
+            }
+
+            self.presentOnboarding()
         }
     }
 
     func refreshPermissionState() {
-        objectWillChange.send()
+        microphoneGranted = PermissionHelper.microphoneStatus()
+        speechGranted = PermissionHelper.speechStatus()
+        accessibilityGranted = PermissionHelper.accessibilityStatus()
     }
 
     // MARK: - Recording

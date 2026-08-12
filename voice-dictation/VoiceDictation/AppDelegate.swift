@@ -26,10 +26,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            AppState.shared?.checkPermissionsAndShowOnboardingIfNeeded()
-            if AppState.shared?.showOnboarding == true, let state = AppState.shared {
-                state.presentOnboarding()
-            }
+            AppState.shared?.evaluateOnboardingOnLaunch()
         }
     }
 

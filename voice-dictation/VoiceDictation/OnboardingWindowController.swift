@@ -25,7 +25,7 @@ final class OnboardingWindowController {
         hostingController = hosting
 
         if panel == nil {
-            let size = NSSize(width: 460, height: 400)
+            let size = NSSize(width: 460, height: 440)
             let panel = NSPanel(
                 contentRect: NSRect(origin: .zero, size: size),
                 styleMask: [.titled, .closable],

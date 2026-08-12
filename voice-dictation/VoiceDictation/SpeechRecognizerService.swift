@@ -122,20 +122,12 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
     // MARK: - Permission
 
     func requestAuthorization(completion: @escaping (PermissionAuthResult) -> Void) {
-        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-        switch micStatus {
-        case .authorized:
-            requestSpeechAuthorization(completion: completion)
-        case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                if granted {
-                    self.requestSpeechAuthorization(completion: completion)
-                } else {
-                    DispatchQueue.main.async { completion(.microphoneDenied) }
-                }
+        PermissionHelper.requestMicrophone { granted in
+            guard granted else {
+                completion(.microphoneDenied)
+                return
             }
-        default:
-            DispatchQueue.main.async { completion(.microphoneDenied) }
+            self.requestSpeechAuthorization(completion: completion)
         }
     }
 

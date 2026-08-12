@@ -9,7 +9,6 @@ import SwiftUI
 
 struct OnboardingView: View {
     @EnvironmentObject var appState: AppState
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -32,7 +31,7 @@ struct OnboardingView: View {
             HStack {
                 Spacer()
                 Button("Continue") {
-                    if PermissionHelper.microphoneStatus() && PermissionHelper.speechStatus() {
+                    if appState.microphoneGranted && appState.speechGranted {
                         appState.completeOnboarding()
                     }
                 }
@@ -43,24 +42,40 @@ struct OnboardingView: View {
             }
         }
         .padding(24)
-        .frame(width: 440, height: 380)
+        .frame(width: 440, height: 420)
         .background(.ultraThinMaterial)
         .onAppear {
-            appState.refreshPermissionState()
+            PermissionHelper.probePermissions {
+                appState.refreshPermissionState()
+                if appState.microphoneGranted && appState.speechGranted {
+                    appState.completeOnboarding()
+                }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             appState.refreshPermissionState()
+            if appState.microphoneGranted && appState.speechGranted && appState.showOnboarding {
+                appState.completeOnboarding()
+            }
         }
     }
 
     private var canContinue: Bool {
-        PermissionHelper.microphoneStatus() && PermissionHelper.speechStatus()
+        appState.microphoneGranted && appState.speechGranted
     }
 }
 
 private struct PermissionRow: View {
     let permission: PermissionType
-    @State private var isGranted: Bool = false
+    @EnvironmentObject var appState: AppState
+
+    private var isGranted: Bool {
+        switch permission {
+        case .microphone: return appState.microphoneGranted
+        case .speechRecognition: return appState.speechGranted
+        case .accessibility: return appState.accessibilityGranted
+        }
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -100,10 +115,6 @@ private struct PermissionRow: View {
                         .stroke(AppTheme.hairlineBorder, lineWidth: 1)
                 )
         )
-        .onAppear { refreshStatus() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            refreshStatus()
-        }
     }
 
     private var iconName: String {
@@ -129,9 +140,5 @@ private struct PermissionRow: View {
             Capsule()
                 .fill((isGranted ? Color.green : Color.orange).opacity(0.12))
         )
-    }
-
-    private func refreshStatus() {
-        isGranted = PermissionHelper.isGranted(permission)
     }
 }
