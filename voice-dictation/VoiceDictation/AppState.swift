@@ -26,7 +26,19 @@ final class AppState: ObservableObject {
     @Published var apiKey: String = KeychainHelper.shared.loadAPIKey() ?? ""
     @Published var enhanceEnabled: Bool = true
     @Published var showFloatingWindow: Bool = true
+    @Published var llmModel: String = UserDefaults.standard.string(forKey: "llmModel") ?? "gemini-3.5-flash-lite"
+    @Published var llmEndpoint: String = UserDefaults.standard.string(forKey: "llmEndpoint") ?? "https://routellm.abacus.ai/v1/chat/completions"
     @Published var history: [TranscriptEntry] = TranscriptHistory.shared.loadHistory()
+
+    func saveLLMModel(_ model: String) {
+        llmModel = model
+        UserDefaults.standard.set(model, forKey: "llmModel")
+    }
+
+    func saveLLMEndpoint(_ endpoint: String) {
+        llmEndpoint = endpoint
+        UserDefaults.standard.set(endpoint, forKey: "llmEndpoint")
+    }
 
     static var shared: AppState?
 
@@ -184,7 +196,7 @@ final class AppState: ObservableObject {
             self.errorMessage = "LLM cleanup timed out (used raw text)"
         }
         
-        llmService.enhanceText(text: trimmed, apiKey: apiKey) { result in
+        llmService.enhanceText(text: trimmed, apiKey: apiKey, endpoint: llmEndpoint, model: llmModel) { result in
             DispatchQueue.main.async {
                 // Skip if already timed out
                 guard !self.llmTimedOut else { return }
