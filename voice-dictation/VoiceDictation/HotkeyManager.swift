@@ -27,12 +27,14 @@ final class HotkeyManager {
         // Store self in a global so the C callback can reach us
         HotkeyManagerCB.shared = self
 
+        let handler: @convention(c) (EventHandlerCallRef?, EventRef?, UnsafeMutableRawPointer?) -> OSStatus = { _, _, _ in
+            HotkeyManagerCB.shared?.onHotkeyPressed()
+            return noErr
+        }
+
         InstallEventHandler(
             GetApplicationEventTarget(),
-            { (_, _, _) in
-                HotkeyManagerCB.shared?.onHotkeyPressed()
-                return noErr
-            },
+            handler,
             1,
             eventSpec,
             nil,
@@ -42,10 +44,14 @@ final class HotkeyManager {
         let modifiers: UInt32 = UInt32(optionKey | shiftKey)
         let keyCode: UInt32 = UInt32(kVK_Space) // 49 = Space
 
+        var hotKeyID = EventHotKeyID()
+        hotKeyID.signature = OSType(0x564F4944) // "VOID"
+        hotKeyID.id = HotkeyManager.hotkeyID
+
         RegisterEventHotKey(
             keyCode,
             modifiers,
-            EventHotKeyID(id: HotkeyManager.hotkeyID, signature: OSType(0x564F4944)), // "VOID"
+            hotKeyID,
             GetApplicationEventTarget(),
             0,
             &hotkeyRef
@@ -60,7 +66,7 @@ final class HotkeyManager {
             hotkeyRef = nil
         }
         if let handler = eventHandler {
-            RemoveEventHandler(GetApplicationEventTarget(), handler)
+            RemoveEventHandler(handler)
             eventHandler = nil
         }
     }

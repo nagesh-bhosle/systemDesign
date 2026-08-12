@@ -35,31 +35,24 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 # ── Build ─────────────────────────────────────────────────
 echo -e "${YELLOW}🔨 Building...${NC}"
 
-# Try Swift Package Manager first
-if swift build -c release 2>/dev/null; then
-    cp ".build/release/VoiceDictation" "$BINARY"
-    echo -e "${GREEN}✅ Built with Swift Package Manager${NC}"
+# Direct swiftc compilation (SPM is broken with Command Line Tools only)
+if swiftc -O \
+    -parse-as-library \
+    -target arm64-apple-macosx14.0 \
+    -sdk "$(xcrun --show-sdk-path)" \
+    -framework Cocoa \
+    -framework SwiftUI \
+    -framework AVFoundation \
+    -framework Carbon \
+    -framework ApplicationServices \
+    -framework Security \
+    -framework UserNotifications \
+    VoiceDictation/*.swift \
+    -o "$BINARY" 2>&1; then
+    echo -e "${GREEN}✅ Built with swiftc${NC}"
 else
-    # Fallback: direct swiftc
-    echo -e "${YELLOW}   SPM failed, trying swiftc directly...${NC}"
-    if swiftc -O \
-        -parse-as-library \
-        -target arm64-apple-macosx14.0 \
-        -sdk "$(xcrun --show-sdk-path)" \
-        -framework Cocoa \
-        -framework SwiftUI \
-        -framework AVFoundation \
-        -framework Carbon \
-        -framework ApplicationServices \
-        -framework Security \
-        -framework UserNotifications \
-        VoiceDictation/*.swift \
-        -o "$BINARY" 2>/dev/null; then
-        echo -e "${GREEN}✅ Built with swiftc${NC}"
-    else
-        echo -e "${RED}❌ Build failed. Install Xcode:  xcode-select --install${NC}"
-        exit 1
-    fi
+    echo -e "${RED}❌ Build failed.${NC}"
+    exit 1
 fi
 
 # ── Assemble .app bundle ──────────────────────────────────

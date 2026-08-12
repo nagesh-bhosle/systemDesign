@@ -57,19 +57,19 @@ final class TextInserter {
             return false
         }
 
-        let source = CGEventSource(stateID: .hidSystemClient)
+        let source = CGEventSource(stateID: CGEventSourceStateID.privateState)
         let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: true)  // Cmd
-        cmdDown?.flags = .maskCommand
+        cmdDown?.flags = CGEventFlags.maskCommand
         let vDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)    // V
-        vDown?.flags = .maskCommand
+        vDown?.flags = CGEventFlags.maskCommand
         let vUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
-        vUp?.flags = .maskCommand
+        vUp?.flags = CGEventFlags.maskCommand
         let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: false)
 
-        cmdDown?.post(tap: .cghidEventTap)
-        vDown?.post(tap: .cghidEventTap)
-        vUp?.post(tap: .cghidEventTap)
-        cmdUp?.post(tap: .cghidEventTap)
+        cmdDown?.post(tap: CGEventTapLocation.cghidEventTap)
+        vDown?.post(tap: CGEventTapLocation.cghidEventTap)
+        vUp?.post(tap: CGEventTapLocation.cghidEventTap)
+        cmdUp?.post(tap: CGEventTapLocation.cghidEventTap)
 
         return true
     }
@@ -83,8 +83,7 @@ final class TextInserter {
                 guard granted else { return }
                 let content = UNMutableNotificationContent()
                 content.title = "Voice Dictation"
-                content.body = "Copied: \(String(text.prefix(100)))..."
-                content.informativeText = "Text copied to clipboard. Press Cmd+V to paste."
+                content.body = "Text copied to clipboard. Press Cmd+V to paste.\n\"\(String(text.prefix(100)))...\""
                 let request = UNNotificationRequest(
                     identifier: "dictation-\(UUID().uuidString)",
                     content: content,

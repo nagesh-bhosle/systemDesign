@@ -9,14 +9,12 @@ import Cocoa
 import Carbon.HIToolbox
 
 class AppDelegate: NSObject, NSApplicationDelegate {
-    private var hotkeyManager: HotkeyManager?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        hotkeyManager = HotkeyManager()
-        hotkeyManager?.registerHotkey()
+        HotkeyManager.shared.registerHotkey()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        hotkeyManager?.unregisterHotkey()
+        HotkeyManager.shared.unregisterHotkey()
     }
 }
