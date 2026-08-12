@@ -20,31 +20,10 @@ final class TextInserter {
     private init() {}
 
     func insertOrCopy(_ text: String) {
-        // Step 1: Copy to clipboard synchronously on main thread
+        // Copy text to clipboard — user pastes manually with Cmd+V
         copyToClipboardSync(text)
-
-        // Step 2: Check accessibility permission WITHOUT prompting
-        let trusted = AXIsProcessTrusted()
-
-        guard trusted else {
-            // Permission not granted — show prompt once, then fallback
-            print("⚠️ Accessibility permission not granted — showing prompt")
-            DispatchQueue.main.async {
-                self.promptAccessibility()
-            }
-            showNotification(text)
-            return
-        }
-
-        // Step 3: Simulate Cmd+V with a small delay to ensure clipboard is ready
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            if self.simulatePaste() {
-                print("✅ Text pasted via Cmd+V simulation")
-            } else {
-                print("📋 Text copied to clipboard (paste manually)")
-                self.showNotification(text)
-            }
-        }
+        showNotification(text)
+        print("📋 Text copied to clipboard (\(text.count) chars)")
     }
 
     // MARK: - Clipboard

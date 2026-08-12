@@ -30,6 +30,12 @@ final class AppState: ObservableObject {
 
     static var shared: AppState?
 
+    init() {
+        // Set shared immediately so the hotkey callback (which fires before
+        // MenuBarView.onAppear) can reach us.
+        AppState.shared = self
+    }
+
     var statusIcon: String {
         switch status {
         case .idle:
@@ -124,6 +130,7 @@ final class AppState: ObservableObject {
 
     private func stopRecording() {
         status = .transcribing
+        liveTranscript = ""  // Clear the floating window text immediately
         speechRecognizer.stopRecognition()
 
         // Safety timeout: if recognition doesn't complete within 5 seconds,

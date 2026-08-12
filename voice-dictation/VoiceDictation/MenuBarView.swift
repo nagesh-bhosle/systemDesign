@@ -114,12 +114,6 @@ struct MenuBarView: View {
         }
         .padding()
         .frame(width: 320)
-        .onAppear {
-            HotkeyManager.shared.registerHotkey()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleDictation)) { _ in
-            appState.toggleRecording()
-        }
         .sheet(isPresented: $showHistory) {
             HistoryView()
                 .environmentObject(appState)

@@ -9,130 +9,122 @@
 
 import SwiftUI
 
-// PreferenceKey to report the SwiftUI content size to the NSPanel
-struct ViewSizeKey: PreferenceKey {
-    static var defaultValue: CGSize = .zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-        value = nextValue()
-    }
-}
-
 struct FloatingWindowView: View {
     @EnvironmentObject var appState: AppState
     @State private var isHovered: Bool = false
     @State private var showCopiedAnimation: Bool = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            // ── Compact bar (always visible) ──
-            HStack(spacing: 8) {
-                // Status indicator
-                if appState.status == .recording {
-                    HStack(spacing: 2) {
-                        ForEach(0..<4, id: \.self) { i in
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(Color.red)
-                                .frame(width: 2.5, height: 12)
-                                .scaleEffect(y: appState.status == .recording ? 1.0 : 0.3)
-                                .animation(
-                                    .easeInOut(duration: 0.35)
-                                        .repeatForever(autoreverses: true)
-                                        .delay(Double(i) * 0.12),
-                                    value: appState.status == .recording
-                                )
-                        }
+        HStack(spacing: 8) {
+            // Status indicator
+            if appState.status == .recording {
+                HStack(spacing: 2) {
+                    ForEach(0..<4, id: \.self) { i in
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color.red)
+                            .frame(width: 2.5, height: 12)
+                            .scaleEffect(y: appState.status == .recording ? 1.0 : 0.3)
+                            .animation(
+                                .easeInOut(duration: 0.35)
+                                    .repeatForever(autoreverses: true)
+                                    .delay(Double(i) * 0.12),
+                                value: appState.status == .recording
+                            )
                     }
-                } else {
-                    Image(systemName: appState.statusIcon)
-                        .font(.system(size: 12))
-                        .foregroundColor(appState.status == .error ? .red : .accentColor)
                 }
-
-                // Status text or live transcript
-                if !appState.liveTranscript.isEmpty {
-                    Text(appState.liveTranscript)
-                        .font(.system(size: 11))
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else if appState.status == .enhancing {
-                    Text("Enhancing...")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Text("Voice Dictation")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                // ── Action buttons (only show on hover) ──
-                if isHovered {
-                    HStack(spacing: 4) {
-                        // Record / Stop button
-                        Button(action: {
-                            appState.toggleRecording()
-                        }) {
-                            Image(systemName: appState.status == .recording ? "stop.fill" : "mic.fill")
-                                .font(.system(size: 12))
-                                .foregroundColor(appState.status == .recording ? .red : .accentColor)
-                                .frame(width: 24, height: 24)
-                        }
-                        .buttonStyle(.borderless)
-                        .help(appState.status == .recording ? "Stop & Transcribe" : "Start Recording")
-                        .disabled(appState.status == .transcribing || appState.status == .enhancing)
-
-                        // Copy button with animation
-                        Button(action: {
-                            copyToClipboard(appState.lastTranscript)
-                            triggerCopiedAnimation()
-                        }) {
-                            Image(systemName: showCopiedAnimation ? "checkmark.circle.fill" : "doc.on.doc")
-                                .font(.system(size: 12))
-                                .foregroundColor(showCopiedAnimation ? .green : .primary)
-                                .frame(width: 24, height: 24)
-                                .scaleEffect(showCopiedAnimation ? 1.3 : 1.0)
-                                .animation(.spring(response: 0.3, dampingFraction: 0.6), value: showCopiedAnimation)
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Copy last transcript")
-                        .disabled(appState.lastTranscript.isEmpty)
-
-                        // Create Note button
-                        Button(action: {
-                            createNote()
-                        }) {
-                            Image(systemName: "note.text")
-                                .font(.system(size: 12))
-                                .foregroundColor(.primary)
-                                .frame(width: 24, height: 24)
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Create Note in Apple Notes")
-                        .disabled(appState.lastTranscript.isEmpty)
-
-                        // Close button
-                        Button(action: {
-                            FloatingWindowController.shared.hideWindow()
-                        }) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 10))
-                                .foregroundColor(.secondary)
-                                .frame(width: 24, height: 24)
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Close floating bar")
-                    }
-                    .transition(.scale.combined(with: .opacity))
-                }
+            } else {
+                Image(systemName: appState.statusIcon)
+                    .font(.system(size: 12))
+                    .foregroundColor(appState.status == .error ? .red : .accentColor)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+
+            // Status text or live transcript
+            if !appState.liveTranscript.isEmpty {
+                Text(appState.liveTranscript)
+                    .font(.system(size: 11))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if appState.status == .enhancing {
+                Text("Enhancing...")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text("Voice Dictation")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // ── Action buttons (visible on hover) ──
+            if isHovered {
+                HStack(spacing: 4) {
+                    // Record / Stop button
+                    Button(action: {
+                        appState.toggleRecording()
+                    }) {
+                    Image(systemName: appState.status == .recording ? "stop.fill" : "mic.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(appState.status == .recording ? .red : .accentColor)
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.borderless)
+                .help(appState.status == .recording ? "Stop & Transcribe" : "Start Recording")
+                .disabled(appState.status == .transcribing || appState.status == .enhancing)
+
+                // Copy button with animation
+                Button(action: {
+                    copyToClipboard(appState.lastTranscript)
+                    triggerCopiedAnimation()
+                }) {
+                    Image(systemName: showCopiedAnimation ? "checkmark.circle.fill" : "doc.on.doc")
+                        .font(.system(size: 12))
+                        .foregroundColor(showCopiedAnimation ? .green : .primary)
+                        .frame(width: 24, height: 24)
+                        .scaleEffect(showCopiedAnimation ? 1.3 : 1.0)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: showCopiedAnimation)
+                }
+                .buttonStyle(.borderless)
+                .help("Copy last transcript")
+                .disabled(appState.lastTranscript.isEmpty)
+
+                // Create Note button
+                Button(action: {
+                    createNote()
+                }) {
+                    Image(systemName: "note.text")
+                        .font(.system(size: 12))
+                        .foregroundColor(.primary)
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.borderless)
+                .help("Create Note in Apple Notes")
+                .disabled(appState.lastTranscript.isEmpty)
+
+                // Close button
+                Button(action: {
+                    FloatingWindowController.shared.hideWindow()
+                }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                        .frame(width: 24, height: 24)
+                }
+                    .buttonStyle(.borderless)
+                    .help("Close floating bar")
+                }
+                .transition(.scale.combined(with: .opacity))
+            }
         }
-        .frame(width: isHovered ? 340 : 160)
-        .background(.ultraThinMaterial)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(width: isHovered ? 340 : 160, height: 40)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(.ultraThinMaterial)
+        )
         .cornerRadius(14)
         .shadow(radius: 5)
         .animation(.easeInOut(duration: 0.2), value: isHovered)
@@ -140,14 +132,7 @@ struct FloatingWindowView: View {
             withAnimation(.easeInOut(duration: 0.2)) {
                 isHovered = hovering
             }
-        }
-        .background(
-            GeometryReader { geo in
-                Color.clear.preference(key: ViewSizeKey.self, value: geo.size)
-            }
-        )
-        .onPreferenceChange(ViewSizeKey.self) { newSize in
-            FloatingWindowController.shared.resizePanel(to: newSize)
+            FloatingWindowController.shared.resizePanel(isHovered: hovering)
         }
     }
 
@@ -167,10 +152,9 @@ struct FloatingWindowView: View {
 
     private func copyToClipboard(_ text: String) {
         guard !text.isEmpty else { return }
-        DispatchQueue.main.async {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
-        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        print("📋 Copied to clipboard: \(text.prefix(50))...")
     }
 
     private func createNote() {

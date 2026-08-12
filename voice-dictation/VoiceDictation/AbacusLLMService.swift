@@ -12,10 +12,23 @@ import Foundation
 final class AbacusLLMService {
     private let endpoint = URL(string: "https://routellm.abacus.ai/v1/chat/completions")!
 
+    // ── Available models (fastest & cheapest, from routellm.abacus.ai/v1/models) ──
+    // Current default (fastest + cheapest):
+    //   "meta-llama/Meta-Llama-3.1-8B-Instruct"  — $0.00000005/out-token, very fast
+    //
+    // Other fast/cheap options to try:
+    //   "deepseek-ai/DeepSeek-V4-Flash-0731"     — $0.00000028/out-token, fast
+    //   "gpt-4.1-nano"                           — $0.0000004/out-token,  fast
+    //   "gpt-5-nano"                             — $0.0000004/out-token,  fast
+    //   "gpt-5.4-nano"                           — $0.00000125/out-token, fast
+    //   "gemini-3.1-flash-lite"                  — $0.0000015/out-token,  very fast
+    //   "gemini-3.5-flash-lite"                  — $0.0000025/out-token,  fastest Gemini
+    //   "gpt-4o-mini"                            — $0.0000006/out-token,  (previous default)
+    //   "route-llm"                               — auto-routes to best model
     func enhanceText(
         text: String,
         apiKey: String,
-        model: String = "gpt-4o-mini",
+        model: String = "meta-llama/Meta-Llama-3.1-8B-Instruct",
         completion: @escaping (Result<String, Error>) -> Void
     ) {
         var request = URLRequest(url: endpoint, timeoutInterval: 15)

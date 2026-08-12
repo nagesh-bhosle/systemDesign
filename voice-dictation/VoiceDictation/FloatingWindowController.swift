@@ -27,7 +27,8 @@ final class FloatingWindowController: ObservableObject {
             let hostingController = NSHostingController(rootView: AnyView(contentView))
             self.hostingController = hostingController
 
-            let panelSize = NSSize(width: 360, height: 50)
+            // Panel starts compact (160) and expands to 340 on hover.
+            let panelSize = NSSize(width: 160, height: 40)
             let panelFrame = NSRect(x: 0, y: 0, width: panelSize.width, height: panelSize.height)
 
             panel = NSPanel(
@@ -46,9 +47,10 @@ final class FloatingWindowController: ObservableObject {
             panel?.hidesOnDeactivate = false
             panel?.becomesKeyOnlyIfNeeded = true
             panel?.worksWhenModal = true
+            panel?.acceptsMouseMovedEvents = true
             panel?.contentViewController = hostingController
 
-            // Allow panel to resize width for hover expansion, but keep height fixed
+            // Panel can resize between compact (160) and expanded (340)
             panel?.contentMinSize = NSSize(width: 160, height: 40)
             panel?.contentMaxSize = NSSize(width: 340, height: 40)
             panel?.canBecomeVisibleWithoutLogin = true
@@ -71,20 +73,18 @@ final class FloatingWindowController: ObservableObject {
         isVisible = false
     }
 
-    /// Resize the panel to fit its SwiftUI content.
-    /// Called from FloatingWindowView via ViewSizeKey preference.
-    /// Only width changes (hover expands buttons) — height stays fixed
-    /// so the window shape doesn't change during recording.
-    func resizePanel(to size: CGSize) {
+    /// Resize the panel between compact (160) and expanded (340) on hover.
+    /// Keeps the top-center position fixed.
+    func resizePanel(isHovered: Bool) {
         guard let panel = panel else { return }
+        let targetWidth: CGFloat = isHovered ? 340 : 160
         let currentFrame = panel.frame
-        // Keep height fixed at the initial compact bar height
-        let fixedHeight: CGFloat = 40
-        // Only adjust width to match content, keep position and height stable
-        let newWidth = currentFrame.width
-        let newFrame = NSRect(x: currentFrame.minX, y: currentFrame.minY, width: newWidth, height: fixedHeight)
-        // Only update if height is wrong (don't trigger unnecessary redraws)
-        if abs(currentFrame.height - fixedHeight) > 1 {
+        // Keep top-center fixed: recompute x so the center stays the same
+        let centerX = currentFrame.midX
+        let newX = centerX - targetWidth / 2
+        let newY = currentFrame.maxY - 40
+        let newFrame = NSRect(x: newX, y: newY, width: targetWidth, height: 40)
+        if abs(currentFrame.width - targetWidth) > 0.5 {
             panel.setFrame(newFrame, display: true, animate: false)
         }
     }

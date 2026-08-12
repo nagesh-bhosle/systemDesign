@@ -75,8 +75,6 @@ final class HotkeyManager {
         DispatchQueue.main.async {
             // Direct call to AppState — works regardless of which window is frontmost
             AppState.shared?.toggleRecording()
-            // Also post notification for any other observers (e.g., menu bar view)
-            NotificationCenter.default.post(name: .toggleDictation, object: nil)
         }
     }
 }

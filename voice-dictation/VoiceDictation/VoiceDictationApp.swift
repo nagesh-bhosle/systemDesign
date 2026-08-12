@@ -16,9 +16,6 @@ struct VoiceDictationApp: App {
         MenuBarExtra {
             MenuBarView()
                 .environmentObject(appState)
-                .onAppear {
-                    AppState.shared = appState
-                }
         } label: {
             if appState.status == .recording {
                 Image(systemName: "waveform")
