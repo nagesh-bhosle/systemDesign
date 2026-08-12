@@ -19,21 +19,25 @@
 Press a global hotkey → speak → transcribed text is inserted at cursor position (or copied to clipboard with paste option).
 
 ### Features
-1. **Global Hotkey** — press a key combo (e.g., ⌥⇧Space) anywhere to start/stop recording
-2. **Audio Recording** — capture microphone input while recording
-3. **Speech-to-Text** — send audio to OpenAI Whisper API for high-quality transcription
-4. **Text Insertion** — paste transcribed text at cursor position using Accessibility API or clipboard paste
-5. **Menu Bar App** — lives in the menu bar with status indicator (idle / recording / transcribing)
-6. **Floating UI** — small floating window showing recording status and transcribed text preview
-7. **Copy & Paste Fallback** — if auto-insert fails, copy text to clipboard and show a notification
+1. **Global Hotkey** — press a key combo (⌥⇧Space) anywhere to start/stop recording
+2. **Audio Recording** — capture microphone input via AVAudioEngine
+3. **On-Device Speech-to-Text** — use Apple SFSpeechRecognizer for on-device transcription (no API key needed)
+4. **Optional LLM Cleanup** — send transcript to Abacus AI for filler word removal and grammar correction
+5. **Text Insertion** — paste transcribed text at cursor position using Accessibility API + Cmd+V simulation
+6. **Menu Bar App** — lives in the menu bar with status indicator (idle / recording / transcribing / enhancing)
+7. **Floating UI** — small floating window showing recording status and live transcript preview
+8. **Copy & Paste Fallback** — if auto-insert fails, copy text to clipboard and show a notification
+9. **Transcript History** — searchable history of past dictations
 
 ### Tech Stack
 - **Language:** Swift (native macOS)
 - **UI:** SwiftUI for menu bar + floating window
 - **Audio:** AVFoundation (AVAudioEngine for recording)
-- **Transcription:** OpenAI Whisper API (whisper-1) — best-in-class STT
+- **Speech Recognition:** Apple SFSpeechRecognizer (on-device, no API key needed)
+- **LLM Cleanup (Optional):** Abacus AI (routellm.abacus.ai) — OpenAI-compatible API
 - **Global Hotkey:** Carbon framework (RegisterEventHotKey)
-- **Text Insertion:** Accessibility API (AXUIElement) with clipboard fallback
+- **Text Insertion:** Accessibility API (AXUIElement) + Cmd+V simulation with clipboard fallback
+- **Key Storage:** macOS Keychain
 - **Minimum macOS:** 14.0 (Sonoma)
 
 ## Phase 2 — AI Enhancement (Future)
@@ -61,51 +65,61 @@ Press a global hotkey → speak → transcribed text is inserted at cursor posit
 
 ```
 voice-dictation/
-├── VoiceDictation.xcodeproj     # Xcode project
+├── Package.swift               # SPM manifest (unused — build via run.sh)
+├── run.sh                      # Build & launch script
+├── stop.sh                     # Stop running instance
 ├── VoiceDictation/
-│   ├── VoiceDictationApp.swift  # App entry point, menu bar
-│   ├── AppDelegate.swift        # Global hotkey registration
-│   ├── AudioRecorder.swift      # AVAudioEngine recording
-│   ├── WhisperService.swift     # OpenAI Whisper API client
-│   ├── TextInserter.swift       # Accessibility API text insertion
-│   ├── MenuBarView.swift        # Menu bar UI
-│   ├── FloatingWindow.swift     # Floating recording indicator
-│   ├── SettingsView.swift       # Settings window
-│   ├── HotkeyManager.swift      # Global hotkey via Carbon
-│   ├── KeychainHelper.swift     # Secure API key storage
-│   └── Assets.xcassets/         # App icon
-├── REQUIREMENTS.md              # This file
-└── README.md                    # Setup & usage guide
+│   ├── VoiceDictationApp.swift # App entry point, menu bar
+│   ├── AppDelegate.swift       # Global hotkey registration
+│   ├── AppState.swift          # Central state, orchestrates flow
+│   ├── HotkeyManager.swift     # Global hotkey via Carbon
+│   ├── SpeechRecognizerService.swift  # On-device SFSpeechRecognizer
+│   ├── AbacusLLMService.swift  # Optional LLM text cleanup (Abacus AI)
+│   ├── TextInserter.swift      # Accessibility API + Cmd+V text insertion
+│   ├── FloatingWindowController.swift  # Floating window lifecycle
+│   ├── FloatingWindowView.swift # Floating bar UI
+│   ├── MenuBarView.swift       # Menu bar dropdown UI
+│   ├── SettingsView.swift      # Settings window (API key, model, endpoint)
+│   ├── HistoryView.swift       # Searchable transcript history
+│   ├── TranscriptHistory.swift # Local persistence
+│   ├── KeychainHelper.swift    # Secure API key storage
+│   └── Info.plist              # App metadata & permissions
+├── REQUIREMENTS.md             # This file
+└── README.md                   # Setup & usage guide
 ```
 
 ## Data Flow
 
 ```
-[Hotkey Press] → [Start Recording] → [Audio Buffer]
+[Hotkey Press] → [Start Recording] → [Audio Buffer via AVAudioEngine]
      ↓
-[Hotkey Press Again] → [Stop Recording] → [WAV File]
+[Hotkey Press Again] → [Stop Recording] → [SFSpeechRecognizer processes audio]
      ↓
-[Send to Whisper API] → [Transcribed Text]
+[On-Device Transcription] → [Transcribed Text]
      ↓
-[Insert at Cursor via AX API] — or — [Copy to Clipboard + Notify]
+[Optional: Abacus AI LLM Cleanup] → [Enhanced Text]
+     ↓
+[Insert at Cursor via AX API + Cmd+V] — or — [Copy to Clipboard + Notify]
 ```
 
 ## API Key
 
-- OpenAI API key stored in macOS Keychain
-- User enters key on first launch via Settings
+- Abacus AI API key (optional — for LLM text cleanup only) stored in macOS Keychain
+- User enters key via Settings on first launch (optional)
 - Key is never logged or stored in plaintext
+- Without a key, raw on-device speech-to-text is used directly
 
 ## Permissions Required
 
 - **Microphone Access** — `NSMicrophoneUsageDescription`
+- **Speech Recognition** — `NSSpeechRecognitionUsageDescription`
 - **Accessibility** — for simulating keystrokes / text insertion at cursor
-- **Network** — to call Whisper API
+- **Notifications** — `NSUserNotificationsUsageDescription` — notify when text is copied
+- **Apple Events** — `NSAppleEventsUsageDescription` — open Notes app
 
 ## Non-Goals (for MVP)
 
-- No on-device model (Phase 3)
-- No LLM rewording (Phase 2)
+- No on-device Whisper model (Phase 3)
 - No multi-language UI (Phase 2)
 - No cloud sync
 - No team features

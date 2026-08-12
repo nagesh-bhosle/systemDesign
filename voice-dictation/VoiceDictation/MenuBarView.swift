@@ -11,6 +11,9 @@ struct MenuBarView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.openSettings) private var openSettings
     @State private var showHistory = false
+    // Issue #9: Observe FloatingWindowController so the button label updates
+    // when visibility changes.
+    @ObservedObject private var floatingController = FloatingWindowController.shared
 
     var body: some View {
         VStack(spacing: 12) {
@@ -80,14 +83,15 @@ struct MenuBarView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            // Issue #9: Use observed floatingController so label updates reactively
             Button(action: {
-                if FloatingWindowController.shared.isVisible {
-                    FloatingWindowController.shared.hideWindow()
+                if floatingController.isVisible {
+                    floatingController.hideWindow()
                 } else {
-                    FloatingWindowController.shared.showWindow(appState: appState)
+                    floatingController.showWindow(appState: appState)
                 }
             }) {
-                Label(FloatingWindowController.shared.isVisible ? "Hide Floating Bar" : "Show Floating Bar",
+                Label(floatingController.isVisible ? "Hide Floating Bar" : "Show Floating Bar",
                       systemImage: "rectangle.topthird.inset.filled")
             }
             .buttonStyle(.bordered)

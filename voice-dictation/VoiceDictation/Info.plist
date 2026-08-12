@@ -24,5 +24,7 @@
     <string>Voice Dictation uses speech recognition to convert your voice to text on-device.</string>
     <key>NSUserNotificationsUsageDescription</key>
     <string>Voice Dictation sends notifications when text is copied to clipboard.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Voice Dictation opens Notes to create a note from your dictation.</string>
 </dict>
 </plist>

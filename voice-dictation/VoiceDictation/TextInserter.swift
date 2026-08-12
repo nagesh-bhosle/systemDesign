@@ -17,13 +17,39 @@ import UserNotifications
 final class TextInserter {
     static let shared = TextInserter()
 
-    private init() {}
+    private var hasPromptedAccessibility = false
+
+    private init() {
+        // Request notification authorization once at init (issue #15)
+        requestNotificationAuthorization()
+    }
+
+    // MARK: - Public
 
     func insertOrCopy(_ text: String) {
-        // Copy text to clipboard — user pastes manually with Cmd+V
+        // Always copy to clipboard first as a safety net
         copyToClipboardSync(text)
-        showNotification(text)
-        print("📋 Text copied to clipboard (\(text.count) chars)")
+
+        // Try to auto-paste if we have accessibility permission (issue #1)
+        if AXIsProcessTrusted() {
+            // Small delay to ensure clipboard is set before simulating paste
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                if self?.simulatePaste() == true {
+                    print("📋 Text pasted at cursor (\(text.count) chars)")
+                } else {
+                    self?.showNotification(text)
+                    print("📋 Paste simulation failed — text copied to clipboard (\(text.count) chars)")
+                }
+            }
+        } else {
+            // No accessibility permission — prompt once, then fall back to notification
+            if !hasPromptedAccessibility {
+                promptAccessibility()
+                hasPromptedAccessibility = true
+            }
+            showNotification(text)
+            print("📋 Text copied to clipboard — grant Accessibility for auto-paste (\(text.count) chars)")
+        }
     }
 
     // MARK: - Clipboard
@@ -33,17 +59,9 @@ final class TextInserter {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    private func copyToClipboard(_ text: String) {
-        DispatchQueue.main.async {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
-        }
-    }
-
     // MARK: - Accessibility Permission
 
     private func promptAccessibility() {
-        // Only prompt if not already trusted
         let options: NSDictionary = [
             kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true
         ]
@@ -75,21 +93,25 @@ final class TextInserter {
 
     // MARK: - Notification
 
+    // Request authorization once at init instead of per-notification (issue #15)
+    private func requestNotificationAuthorization() {
+        DispatchQueue.main.async {
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        }
+    }
+
     private func showNotification(_ text: String) {
         DispatchQueue.main.async {
             let center = UNUserNotificationCenter.current()
-            center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-                guard granted else { return }
-                let content = UNMutableNotificationContent()
-                content.title = "Voice Dictation"
-                content.body = "Text copied to clipboard. Press Cmd+V to paste.\n\"\(String(text.prefix(100)))\""
-                let request = UNNotificationRequest(
-                    identifier: "dictation-\(UUID().uuidString)",
-                    content: content,
-                    trigger: nil
-                )
-                center.add(request)
-            }
+            let content = UNMutableNotificationContent()
+            content.title = "Voice Dictation"
+            content.body = "Text copied to clipboard. Press Cmd+V to paste.\n\"\(String(text.prefix(100)))\""
+            let request = UNNotificationRequest(
+                identifier: "dictation-\(UUID().uuidString)",
+                content: content,
+                trigger: nil
+            )
+            center.add(request)
         }
     }
 }

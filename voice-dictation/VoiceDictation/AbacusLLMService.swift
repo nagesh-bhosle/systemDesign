@@ -11,19 +11,8 @@ import Foundation
 
 final class AbacusLLMService {
 
-    // ── Available models (fastest & cheapest, from routellm.abacus.ai/v1/models) ──
-    // These are also defined in SettingsView.swift for the dropdown.
-    //
-    // Fastest + cheapest:
-    //   "meta-llama/Meta-Llama-3.1-8B-Instruct"  — $0.00000005/out-token, very fast + cheapest
-    //   "deepseek-ai/DeepSeek-V4-Flash-0731"     — $0.00000028/out-token, fast
-    //   "gpt-4.1-nano"                           — $0.0000004/out-token,  fast
-    //   "gpt-5-nano"                             — $0.0000004/out-token,  fast
-    //   "gpt-5.4-nano"                           — $0.00000125/out-token, fast
-    //   "gemini-3.1-flash-lite"                  — $0.0000015/out-token,  very fast
-    //   "gemini-3.5-flash-lite"                  — $0.0000025/out-token,  fastest Gemini
-    //   "gpt-4o-mini"                            — $0.0000006/out-token,  (previous default)
-    //   "route-llm"                               — auto-routes to best model
+    // Issue #23: Model list is defined in SettingsView.swift as AVAILABLE_MODELS.
+    // This file references that single source of truth instead of duplicating.
     func enhanceText(
         text: String,
         apiKey: String,
@@ -54,7 +43,8 @@ final class AbacusLLMService {
                 ["role": "user", "content": text]
             ],
             "temperature": 0.3,
-            "max_tokens": 2048
+            // Issue #25: Increased from 2048 to 4096 to avoid truncating long dictations
+            "max_tokens": 4096
         ]
 
         do {

@@ -18,6 +18,9 @@ enum DictationStatus: String {
     case error = "Error"
 }
 
+// Issue #30: Annotate with @MainActor so @Published properties are
+// guaranteed to be updated on the main thread at compile time.
+@MainActor
 final class AppState: ObservableObject {
     @Published var status: DictationStatus = .idle
     @Published var lastTranscript: String = ""
@@ -48,6 +51,17 @@ final class AppState: ObservableObject {
         AppState.shared = self
     }
 
+    // Issue #28: Track whether this is the "real" AppState to prevent
+    // accidental overwrite from previews/tests.
+    private var isPrimaryInstance = false
+
+    static func createPrimary() -> AppState {
+        let state = AppState()
+        state.isPrimaryInstance = true
+        AppState.shared = state
+        return state
+    }
+
     var statusIcon: String {
         switch status {
         case .idle:
@@ -70,7 +84,9 @@ final class AppState: ObservableObject {
         case .recording:
             stopRecording()
         case .transcribing:
-            // Stuck in transcribing — force reset so user can record again
+            // Issue #13: Stuck in transcribing — force reset so user can record again.
+            // cancel() marks hasCompleted=true so the pending 3s timeout in
+            // SpeechRecognizerService won't fire a stale result.
             speechRecognizer.cancel()
             status = .idle
             errorMessage = ""
@@ -86,12 +102,18 @@ final class AppState: ObservableObject {
     private let speechRecognizer = SpeechRecognizerService()
     private let llmService = AbacusLLMService()
     private var rawTranscript: String = ""
+    // Issue #5: llmTimedOut is now only accessed on the main thread (inside
+    // DispatchQueue.main.async blocks), eliminating the data race.
     private var llmTimedOut: Bool = false
+    // Issue #12: Track whether the transcription result has been processed
+    // to prevent double-firing from the 3s and 5s timeouts.
+    private var transcriptionProcessed: Bool = false
 
     private func startRecording() {
         errorMessage = ""
         liveTranscript = ""
         rawTranscript = ""
+        transcriptionProcessed = false  // Issue #12: Reset for new session
 
         // Show floating window if not already visible
         if showFloatingWindow {
@@ -122,15 +144,18 @@ final class AppState: ObservableObject {
 
                 self.speechRecognizer.startRecognition { result in
                     DispatchQueue.main.async {
-                        // Only process if we're still in transcribing/recording state
+                        // Issue #12: Skip if already processed (by timeout) or no longer in recording/transcribing state
+                        guard !self.transcriptionProcessed else { return }
                         guard self.status == .transcribing || self.status == .recording else { return }
 
                         switch result {
                         case .success(let text):
+                            self.transcriptionProcessed = true
                             self.rawTranscript = text
                             self.liveTranscript = ""
                             self.processTranscript(text)
                         case .failure(let error):
+                            self.transcriptionProcessed = true
                             self.status = .error
                             self.errorMessage = "Recognition failed: \(error.localizedDescription)"
                         }
@@ -146,11 +171,14 @@ final class AppState: ObservableObject {
         speechRecognizer.stopRecognition()
 
         // Safety timeout: if recognition doesn't complete within 5 seconds,
-        // reset to idle so user can try again
+        // reset to idle so user can try again.
+        // Issue #12: Use transcriptionProcessed flag to avoid double-processing
+        // with the 3s timeout in SpeechRecognizerService.
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
             guard let self = self else { return }
-            if self.status == .transcribing {
+            if self.status == .transcribing && !self.transcriptionProcessed {
                 print("⚠️ Transcription timed out — resetting to idle")
+                self.transcriptionProcessed = true
                 self.speechRecognizer.cancel()
                 self.status = .idle
                 self.errorMessage = "No speech detected. Try again."
@@ -172,8 +200,9 @@ final class AppState: ObservableObject {
         // If no API key or enhancement disabled, use raw transcript
         guard enhanceEnabled, !apiKey.isEmpty else {
             lastTranscript = trimmed
-            saveToHistory(text: trimmed)
             TextInserter.shared.insertOrCopy(trimmed)
+            // Issue #35: Save to history AFTER successful insertion
+            saveToHistory(text: trimmed)
             status = .idle
             hideFloatingWindow()
             return
@@ -182,38 +211,42 @@ final class AppState: ObservableObject {
         // Enhance text via Abacus LLM
         status = .enhancing
         llmTimedOut = false
-        
+
         // Timeout: if LLM takes more than 12 seconds, use raw transcript
         DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in
             guard let self = self, self.status == .enhancing, !self.llmTimedOut else { return }
             print("⚠️ LLM enhancement timed out — using raw transcript")
             self.llmTimedOut = true
             self.lastTranscript = trimmed
-            self.saveToHistory(text: trimmed)
             TextInserter.shared.insertOrCopy(trimmed)
+            // Issue #35: Save to history AFTER successful insertion
+            self.saveToHistory(text: trimmed)
             self.status = .idle
             self.hideFloatingWindow()
             self.errorMessage = "LLM cleanup timed out (used raw text)"
         }
-        
+
         llmService.enhanceText(text: trimmed, apiKey: apiKey, endpoint: llmEndpoint, model: llmModel) { result in
             DispatchQueue.main.async {
-                // Skip if already timed out
+                // Issue #5: llmTimedOut is now checked on the main thread,
+                // eliminating the data race.
                 guard !self.llmTimedOut else { return }
-                
+
                 switch result {
                 case .success(let enhanced):
                     self.lastTranscript = enhanced
-                    self.saveToHistory(text: enhanced)
                     TextInserter.shared.insertOrCopy(enhanced)
+                    // Issue #35: Save to history AFTER successful insertion
+                    self.saveToHistory(text: enhanced)
                     self.status = .idle
                     self.hideFloatingWindow()
                 case .failure(let error):
                     // Fallback: use raw transcript if LLM fails
                     print("⚠️ LLM enhancement failed: \(error.localizedDescription)")
                     self.lastTranscript = trimmed
-                    self.saveToHistory(text: trimmed)
                     TextInserter.shared.insertOrCopy(trimmed)
+                    // Issue #35: Save to history AFTER successful insertion
+                    self.saveToHistory(text: trimmed)
                     self.status = .idle
                     self.hideFloatingWindow()
                     self.errorMessage = "LLM cleanup failed (using raw text): \(error.localizedDescription)"
@@ -222,9 +255,10 @@ final class AppState: ObservableObject {
         }
     }
 
+    // Issue #8: Actually hide the floating window after transcription completes.
+    // The window will reappear on next recording start.
     private func hideFloatingWindow() {
-        // Window stays visible — user closes it via the X button
-        // This is called after transcription completes; no auto-hide
+        FloatingWindowController.shared.hideWindow()
     }
 
     private func saveToHistory(text: String) {

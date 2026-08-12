@@ -9,6 +9,14 @@
 import Cocoa
 import Carbon.HIToolbox
 
+// Issue #29: Use a class-based box with a static singleton instead of a
+// file-scope mutable variable. This is cleaner and more maintainable.
+private final class HotkeyManagerBox {
+    static let shared = HotkeyManagerBox()
+    weak var manager: HotkeyManager?
+    private init() {}
+}
+
 final class HotkeyManager {
     private var eventHandler: EventHandlerRef?
     private var hotkeyRef: EventHotKeyRef?
@@ -24,11 +32,11 @@ final class HotkeyManager {
             EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         ]
 
-        // Store self in a global so the C callback can reach us
-        HotkeyManagerCB.shared = self
+        // Store self in the shared box so the C callback can reach us
+        HotkeyManagerBox.shared.manager = self
 
         let handler: @convention(c) (EventHandlerCallRef?, EventRef?, UnsafeMutableRawPointer?) -> OSStatus = { _, _, _ in
-            HotkeyManagerCB.shared?.onHotkeyPressed()
+            HotkeyManagerBox.shared.manager?.onHotkeyPressed()
             return noErr
         }
 
@@ -79,13 +87,5 @@ final class HotkeyManager {
     }
 }
 
-// Global holder for the Carbon callback (which is a C function pointer)
-private var HotkeyManagerCB: HotkeyManagerBox = HotkeyManagerBox()
-
-private final class HotkeyManagerBox {
-    var shared: HotkeyManager?
-}
-
-extension Notification.Name {
-    static let toggleDictation = Notification.Name("toggleDictation")
-}
+// Issue #29: Removed file-scope mutable variable — using HotkeyManagerBox
+// singleton instead. Issue #37: Removed unused Notification.Name.toggleDictation.

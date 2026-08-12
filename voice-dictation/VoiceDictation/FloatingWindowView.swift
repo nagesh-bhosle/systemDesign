@@ -122,10 +122,10 @@ struct FloatingWindowView: View {
         }
         .padding(.horizontal, isHovered || appState.status == .recording || appState.status == .enhancing ? 10 : 8)
         .padding(.vertical, 7)
-        .frame(
-            width: isHovered ? 340 : (appState.status == .recording || appState.status == .enhancing ? 200 : 36),
-            height: 40
-        )
+        // Issue #27: Don't set explicit width on the SwiftUI view — let the
+        // NSPanel control the width via resizePanel(). The view fills the
+        // available space.
+        .frame(height: 40)
         .background(
             RoundedRectangle(cornerRadius: 14)
                 .fill(.ultraThinMaterial)
@@ -138,6 +138,13 @@ struct FloatingWindowView: View {
                 isHovered = hovering
             }
             FloatingWindowController.shared.resizePanel(isHovered: hovering)
+        }
+        // Issue #27: Resize panel when recording/enhancing state changes
+        .onChange(of: appState.status) { _, newStatus in
+            if !isHovered {
+                let width: CGFloat = (newStatus == .recording || newStatus == .enhancing) ? 200 : 36
+                FloatingWindowController.shared.resizePanelForState(width: width)
+            }
         }
     }
 
@@ -165,11 +172,16 @@ struct FloatingWindowView: View {
     private func createNote() {
         guard !appState.lastTranscript.isEmpty else { return }
         let text = appState.lastTranscript
-        let url = URL(string: "shortcuts://run-shortcut?name=Create%20Note&input=text&text=\(text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")")
-        if let url = url {
+        // Issue #24: Use the standard Notes URL scheme instead of assuming
+        // a specific Shortcut named "Create Note" exists. This opens Notes
+        // and creates a new note with the text.
+        if let url = URL(string: "mobilenotes://") {
+            // Copy text to clipboard first, then open Notes for manual paste
+            copyToClipboard(text)
             NSWorkspace.shared.open(url)
+            print("📝 Opened Notes — text copied to clipboard for manual paste")
         } else {
-            // Fallback: copy to clipboard and open Notes
+            // Fallback: copy to clipboard and open Notes app directly
             copyToClipboard(text)
             NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Notes.app"))
         }

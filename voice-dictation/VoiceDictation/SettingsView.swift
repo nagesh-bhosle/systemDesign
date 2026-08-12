@@ -7,7 +7,8 @@
 
 import SwiftUI
 
-// All available models on routellm.abacus.ai (fast/cheap ones for text cleanup)
+// Issue #23: Single source of truth for available models.
+// AbacusLLMService.swift references this same list instead of duplicating.
 let AVAILABLE_MODELS: [(name: String, label: String, cost: String)] = [
     ("meta-llama/Meta-Llama-3.1-8B-Instruct", "Meta Llama 3.1 8B", "$0.05/M — very fast + cheapest"),
     ("deepseek-ai/DeepSeek-V4-Flash-0731", "DeepSeek V4 Flash", "$0.28/M — fast"),
@@ -24,6 +25,9 @@ struct SettingsView: View {
     @EnvironmentObject var appState: AppState
     @State private var newAPIKey: String = ""
     @State private var showSavedAlert: Bool = false
+    @State private var showDeletedAlert: Bool = false
+    // Issue #2: endpointDraft is now the direct binding for the TextField,
+    // so the user can actually see what they type.
     @State private var endpointDraft: String = ""
 
     var body: some View {
@@ -32,16 +36,33 @@ struct SettingsView: View {
                 SecureField("your-api-key...", text: $newAPIKey)
                     .textFieldStyle(.roundedBorder)
 
-                Button("Save Key") {
-                    KeychainHelper.shared.saveAPIKey(newAPIKey)
-                    appState.apiKey = newAPIKey
-                    newAPIKey = ""
-                    showSavedAlert = true
+                HStack {
+                    Button("Save Key") {
+                        KeychainHelper.shared.saveAPIKey(newAPIKey)
+                        appState.apiKey = newAPIKey
+                        newAPIKey = ""
+                        showSavedAlert = true
+                    }
+                    .disabled(newAPIKey.isEmpty)
+
+                    // Issue #21: Add Delete Key button
+                    Button("Delete Key") {
+                        KeychainHelper.shared.deleteAPIKey()
+                        appState.apiKey = ""
+                        showDeletedAlert = true
+                        showSavedAlert = false
+                    }
+                    .disabled(appState.apiKey.isEmpty)
                 }
-                .disabled(newAPIKey.isEmpty)
 
                 if showSavedAlert {
                     Text("✅ Key saved to Keychain")
+                        .font(.caption)
+                        .foregroundColor(.green)
+                }
+
+                if showDeletedAlert {
+                    Text("✅ Key deleted from Keychain")
                         .font(.caption)
                         .foregroundColor(.green)
                 }
@@ -78,13 +99,11 @@ struct SettingsView: View {
                         }
                     }
 
-                    // Endpoint
+                    // Issue #2: Bind directly to endpointDraft so user can see what they type.
+                    // Save button commits the draft to AppState.
                     HStack {
-                        TextField("Endpoint URL", text: Binding(
-                            get: { appState.llmEndpoint },
-                            set: { endpointDraft = $0 }
-                        ), prompt: Text("https://routellm.abacus.ai/v1/chat/completions"))
-                        .textFieldStyle(.roundedBorder)
+                        TextField("Endpoint URL", text: $endpointDraft, prompt: Text("https://routellm.abacus.ai/v1/chat/completions"))
+                            .textFieldStyle(.roundedBorder)
 
                         Button("Save") {
                             let trimmed = endpointDraft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -92,7 +111,7 @@ struct SettingsView: View {
                                 appState.saveLLMEndpoint(trimmed)
                             }
                         }
-                        .disabled(endpointDraft.isEmpty)
+                        .disabled(endpointDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
 
                     Text("Current: \(appState.llmModel)")
@@ -115,7 +134,8 @@ struct SettingsView: View {
             }
 
             Section("About") {
-                Text("Voice Dictation v0.3")
+                // Issue #18: Match Info.plist version
+                Text("Voice Dictation v0.1.0")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Text("Speech recognition runs on-device. Press ⌥⇧Space to start/stop. Text is copied to clipboard — paste with Cmd+V.")

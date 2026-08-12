@@ -10,7 +10,8 @@ import SwiftUI
 @main
 struct VoiceDictationApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @StateObject private var appState = AppState()
+    // Issue #28: Use createPrimary() so the singleton is set correctly
+    @StateObject private var appState = AppState.createPrimary()
 
     var body: some Scene {
         MenuBarExtra {

@@ -28,6 +28,13 @@ NC='\033[0m' # No Color
 echo -e "${GREEN}🎙️  Voice Dictation — Build & Run${NC}"
 echo ""
 
+# ── Check for Xcode Command Line Tools (issue #33) ──────
+if ! xcrun --show-sdk-path > /dev/null 2>&1; then
+    echo -e "${RED}❌ Xcode Command Line Tools not found.${NC}"
+    echo -e "${YELLOW}   Run: xcode-select --install${NC}"
+    exit 1
+fi
+
 # ── Clean previous build ─────────────────────────────────
 rm -rf "$BUILD_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
@@ -35,10 +42,13 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 # ── Build ─────────────────────────────────────────────────
 echo -e "${YELLOW}🔨 Building...${NC}"
 
+# Issue #6: Auto-detect architecture instead of hardcoding arm64
+ARCH=$(uname -m)
+
 # Direct swiftc compilation (SPM is broken with Command Line Tools only)
 if swiftc -O \
     -parse-as-library \
-    -target arm64-apple-macosx14.0 \
+    -target "${ARCH}-apple-macosx14.0" \
     -sdk "$(xcrun --show-sdk-path)" \
     -framework Cocoa \
     -framework SwiftUI \

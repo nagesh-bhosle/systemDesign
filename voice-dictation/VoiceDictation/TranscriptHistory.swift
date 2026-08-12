@@ -19,11 +19,16 @@ struct TranscriptEntry: Identifiable, Codable, Equatable {
         self.timestamp = timestamp
     }
 
-    var formattedTime: String {
+    // Issue #26: Use a static formatter instead of creating one per access
+    private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .short
         formatter.timeStyle = .short
-        return formatter.string(from: timestamp)
+        return formatter
+    }()
+
+    var formattedTime: String {
+        Self.dateFormatter.string(from: timestamp)
     }
 }
 

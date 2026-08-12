@@ -13,12 +13,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         HotkeyManager.shared.registerHotkey()
 
-        // Show floating bar on launch (delayed so AppState is ready)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            if let appState = AppState.shared {
-                FloatingWindowController.shared.showWindow(appState: appState)
-            }
-        }
+        // Issue #7: Don't show floating window on launch — it should only
+        // appear when recording starts. The user can toggle it from the
+        // menu bar if they want it visible.
     }
 
     func applicationWillTerminate(_ notification: Notification) {

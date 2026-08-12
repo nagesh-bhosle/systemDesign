@@ -74,7 +74,9 @@ final class FloatingWindowController: ObservableObject {
     }
 
     /// Resize the panel between tiny (36 — just mic icon) and expanded (340) on hover.
+    /// Also resizes based on recording/enhancing state.
     /// Keeps the top-center position fixed.
+    /// Issue #27: The panel is the single source of truth for width.
     func resizePanel(isHovered: Bool) {
         guard let panel = panel else { return }
         let targetWidth: CGFloat = isHovered ? 340 : 36
@@ -85,6 +87,20 @@ final class FloatingWindowController: ObservableObject {
         let newY = currentFrame.maxY - 40
         let newFrame = NSRect(x: newX, y: newY, width: targetWidth, height: 40)
         if abs(currentFrame.width - targetWidth) > 0.5 {
+            panel.setFrame(newFrame, display: true, animate: false)
+        }
+    }
+
+    /// Issue #27: Resize panel based on app state (recording/enhancing needs
+    /// more width to show live transcript).
+    func resizePanelForState(width: CGFloat) {
+        guard let panel = panel else { return }
+        let currentFrame = panel.frame
+        let centerX = currentFrame.midX
+        let newX = centerX - width / 2
+        let newY = currentFrame.maxY - 40
+        let newFrame = NSRect(x: newX, y: newY, width: width, height: 40)
+        if abs(currentFrame.width - width) > 0.5 {
             panel.setFrame(newFrame, display: true, animate: false)
         }
     }
