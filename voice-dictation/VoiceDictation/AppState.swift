@@ -51,8 +51,17 @@ final class AppState: ObservableObject {
             startRecording()
         case .recording:
             stopRecording()
-        case .transcribing, .enhancing:
-            break
+        case .transcribing:
+            // Stuck in transcribing — force reset so user can record again
+            speechRecognizer.cancel()
+            status = .idle
+            errorMessage = ""
+            liveTranscript = ""
+        case .enhancing:
+            // Stuck in enhancing — force reset
+            llmTimedOut = true
+            status = .idle
+            errorMessage = ""
         }
     }
 
@@ -64,11 +73,15 @@ final class AppState: ObservableObject {
     private func startRecording() {
         errorMessage = ""
         liveTranscript = ""
+        rawTranscript = ""
 
         // Show floating window if not already visible
         if showFloatingWindow {
             FloatingWindowController.shared.showWindow(appState: self)
         }
+
+        // Set status to recording immediately so UI reflects state
+        status = .recording
 
         // Check speech recognition permission
         speechRecognizer.requestAuthorization { [weak self] granted in
@@ -80,6 +93,9 @@ final class AppState: ObservableObject {
                     return
                 }
 
+                // Only proceed if we're still in recording state (user might have cancelled)
+                guard self.status == .recording else { return }
+
                 self.speechRecognizer.onPartialResult = { text in
                     DispatchQueue.main.async {
                         self.liveTranscript = text
@@ -88,6 +104,9 @@ final class AppState: ObservableObject {
 
                 self.speechRecognizer.startRecognition { result in
                     DispatchQueue.main.async {
+                        // Only process if we're still in transcribing/recording state
+                        guard self.status == .transcribing || self.status == .recording else { return }
+
                         switch result {
                         case .success(let text):
                             self.rawTranscript = text
@@ -99,7 +118,6 @@ final class AppState: ObservableObject {
                         }
                     }
                 }
-                self.status = .recording
             }
         }
     }
@@ -107,6 +125,19 @@ final class AppState: ObservableObject {
     private func stopRecording() {
         status = .transcribing
         speechRecognizer.stopRecognition()
+
+        // Safety timeout: if recognition doesn't complete within 5 seconds,
+        // reset to idle so user can try again
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+            guard let self = self else { return }
+            if self.status == .transcribing {
+                print("⚠️ Transcription timed out — resetting to idle")
+                self.speechRecognizer.cancel()
+                self.status = .idle
+                self.errorMessage = "No speech detected. Try again."
+                self.liveTranscript = ""
+            }
+        }
     }
 
     private func processTranscript(_ text: String) {
@@ -114,7 +145,8 @@ final class AppState: ObservableObject {
 
         guard !trimmed.isEmpty else {
             status = .idle
-            errorMessage = "No speech detected."
+            errorMessage = "No speech detected. Try again."
+            liveTranscript = ""
             return
         }
 

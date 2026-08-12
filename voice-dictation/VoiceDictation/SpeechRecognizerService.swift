@@ -15,6 +15,10 @@ final class SpeechRecognizerService {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
+    private var completion: ((Result<String, Error>) -> Void)?
+    private var hasCompleted: Bool = false
+    private var isRunning: Bool = false
+    private var lastPartialText: String = ""
     var onPartialResult: ((String) -> Void)?
 
     init(locale: Locale = Locale(identifier: "en-US")) {
@@ -30,33 +34,42 @@ final class SpeechRecognizerService {
     }
 
     func startRecognition(completion: @escaping (Result<String, Error>) -> Void) {
-        // Cancel any existing task
-        recognitionTask?.cancel()
-        recognitionTask = nil
+        // Cancel any existing task first
+        cancel()
+
+        // Reset state
+        hasCompleted = false
+        self.completion = completion
+        isRunning = true
+        lastPartialText = ""
 
         // Create recognition request
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
         guard let recognitionRequest = recognitionRequest else {
-            completion(.failure(NSError(domain: "SpeechRecognizer", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not create recognition request"])))
+            finish(with: .failure(NSError(domain: "SpeechRecognizer", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not create recognition request"])))
             return
         }
         recognitionRequest.shouldReportPartialResults = true
 
         // Start recognition task
         recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
+            guard let self = self else { return }
+
             if let error = error {
-                completion(.failure(error))
+                self.finish(with: .failure(error))
                 return
             }
 
             if let result = result {
                 let text = result.bestTranscription.formattedString
                 if result.isFinal {
-                    completion(.success(text))
+                    self.finish(with: .success(text))
                 } else {
+                    // Save partial text for timeout fallback
+                    self.lastPartialText = text
                     // Partial result — update floating window
                     DispatchQueue.main.async {
-                        self?.onPartialResult?(text)
+                        self.onPartialResult?(text)
                     }
                 }
             }
@@ -75,7 +88,9 @@ final class SpeechRecognizerService {
         do {
             try audioEngine.start()
         } catch {
-            completion(.failure(error))
+            // Clean up tap on failure
+            inputNode.removeTap(onBus: 0)
+            finish(with: .failure(error))
         }
     }
 
@@ -83,6 +98,16 @@ final class SpeechRecognizerService {
         audioEngine.inputNode.removeTap(onBus: 0)
         audioEngine.stop()
         recognitionRequest?.endAudio()
+        isRunning = false
+
+        // If the recognition task doesn't call back within 3 seconds,
+        // force-complete with whatever we have (or empty string)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self = self else { return }
+            if !self.hasCompleted {
+                self.finish(with: .success(self.lastPartialText))
+            }
+        }
     }
 
     func cancel() {
@@ -91,5 +116,27 @@ final class SpeechRecognizerService {
         recognitionRequest = nil
         audioEngine.inputNode.removeTap(onBus: 0)
         audioEngine.stop()
+        isRunning = false
+        // Don't call finish here — cancel means we don't want the result
+        hasCompleted = true
+        completion = nil
+    }
+
+    // MARK: - Private
+
+    private func finish(with result: Result<String, Error>) {
+        guard !hasCompleted else { return }
+        hasCompleted = true
+        isRunning = false
+        let cb = completion
+        completion = nil
+        // Clean up audio resources
+        audioEngine.inputNode.removeTap(onBus: 0)
+        audioEngine.stop()
+        recognitionTask = nil
+        recognitionRequest = nil
+        DispatchQueue.main.async {
+            cb?(result)
+        }
     }
 }
