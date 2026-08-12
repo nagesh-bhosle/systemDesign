@@ -9,6 +9,7 @@ import SwiftUI
 
 struct HistoryView: View {
     @EnvironmentObject var appState: AppState
+    @Environment(\.dismiss) private var dismiss
     @State private var searchText: String = ""
 
     var filteredHistory: [TranscriptEntry] {
@@ -22,6 +23,22 @@ struct HistoryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Header with Done button
+            HStack {
+                Text("History")
+                    .font(.headline)
+                Spacer()
+                Button("Done") {
+                    dismiss()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            Divider()
+
             // Search bar
             HStack {
                 Image(systemName: "magnifyingglass")
