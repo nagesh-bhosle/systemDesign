@@ -3,15 +3,18 @@
 //  VoiceDictation
 //
 //  Central observable state for the app.
+//  Flow: On-device speech recognition → Abacus LLM text cleanup → paste at cursor.
 //
 
 import Foundation
 import SwiftUI
+import Speech
 
 enum DictationStatus: String {
     case idle = "Idle"
-    case recording = "Recording"
+    case recording = "Listening"
     case transcribing = "Transcribing"
+    case enhancing = "Enhancing"
     case error = "Error"
 }
 
@@ -20,6 +23,7 @@ final class AppState: ObservableObject {
     @Published var lastTranscript: String = ""
     @Published var errorMessage: String = ""
     @Published var apiKey: String = KeychainHelper.shared.loadAPIKey() ?? ""
+    @Published var enhanceEnabled: Bool = true
 
     var statusIcon: String {
         switch status {
@@ -29,6 +33,8 @@ final class AppState: ObservableObject {
             return "mic.circle.fill"
         case .transcribing:
             return "waveform.circle.fill"
+        case .enhancing:
+            return "sparkles"
         case .error:
             return "exclamationmark.triangle.fill"
         }
@@ -40,57 +46,83 @@ final class AppState: ObservableObject {
             startRecording()
         case .recording:
             stopRecording()
-        case .transcribing:
+        case .transcribing, .enhancing:
             break
         }
     }
 
-    private let recorder = AudioRecorder()
-    private let whisper = WhisperService()
+    private let speechRecognizer = SpeechRecognizerService()
+    private let llmService = AbacusLLMService()
+    private var rawTranscript: String = ""
 
     private func startRecording() {
         errorMessage = ""
-        do {
-            try recorder.startRecording()
-            status = .recording
-        } catch {
-            status = .error
-            errorMessage = "Failed to start recording: \(error.localizedDescription)"
+
+        // Check speech recognition permission
+        speechRecognizer.requestAuthorization { [weak self] granted in
+            guard let self = self else { return }
+            DispatchQueue.main.async {
+                guard granted else {
+                    self.status = .error
+                    self.errorMessage = "Speech recognition permission denied. Grant it in System Settings → Privacy → Speech Recognition."
+                    return
+                }
+
+                self.speechRecognizer.startRecognition { result in
+                    DispatchQueue.main.async {
+                        switch result {
+                        case .success(let text):
+                            self.rawTranscript = text
+                            self.processTranscript(text)
+                        case .failure(let error):
+                            self.status = .error
+                            self.errorMessage = "Recognition failed: \(error.localizedDescription)"
+                        }
+                    }
+                }
+                self.status = .recording
+            }
         }
     }
 
     private func stopRecording() {
         status = .transcribing
-        recorder.stopRecording { [weak self] audioURL in
-            guard let self = self else { return }
-            guard let url = audioURL else {
-                DispatchQueue.main.async {
-                    self.status = .error
-                    self.errorMessage = "No audio captured."
-                }
-                return
-            }
+        speechRecognizer.stopRecognition()
+    }
 
-            // If no API key, copy raw audio path and show error
-            guard !self.apiKey.isEmpty else {
-                DispatchQueue.main.async {
-                    self.status = .error
-                    self.errorMessage = "No API key set. Open Settings to add your OpenAI API key."
-                }
-                return
-            }
+    private func processTranscript(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            self.whisper.transcribe(audioURL: url, apiKey: self.apiKey) { result in
-                DispatchQueue.main.async {
-                    switch result {
-                    case .success(let text):
-                        self.lastTranscript = text
-                        TextInserter.shared.insertOrCopy(text)
-                        self.status = .idle
-                    case .failure(let error):
-                        self.status = .error
-                        self.errorMessage = error.localizedDescription
-                    }
+        guard !trimmed.isEmpty else {
+            status = .idle
+            errorMessage = "No speech detected."
+            return
+        }
+
+        // If no API key or enhancement disabled, use raw transcript
+        guard enhanceEnabled, !apiKey.isEmpty else {
+            lastTranscript = trimmed
+            TextInserter.shared.insertOrCopy(trimmed)
+            status = .idle
+            return
+        }
+
+        // Enhance text via Abacus LLM
+        status = .enhancing
+        llmService.enhanceText(text: trimmed, apiKey: apiKey) { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let enhanced):
+                    self.lastTranscript = enhanced
+                    TextInserter.shared.insertOrCopy(enhanced)
+                    self.status = .idle
+                case .failure(let error):
+                    // Fallback: use raw transcript if LLM fails
+                    print("⚠️ LLM enhancement failed: \(error.localizedDescription)")
+                    self.lastTranscript = trimmed
+                    TextInserter.shared.insertOrCopy(trimmed)
+                    self.status = .idle
+                    self.errorMessage = "LLM cleanup failed (using raw text): \(error.localizedDescription)"
                 }
             }
         }

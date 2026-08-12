@@ -20,6 +20,8 @@
     <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Voice Dictation needs microphone access to transcribe your speech to text.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Voice Dictation uses speech recognition to convert your voice to text on-device.</string>
     <key>NSUserNotificationsUsageDescription</key>
     <string>Voice Dictation sends notifications when text is copied to clipboard.</string>
 </dict>
