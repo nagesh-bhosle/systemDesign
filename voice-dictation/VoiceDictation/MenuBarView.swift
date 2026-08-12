@@ -80,9 +80,6 @@ struct MenuBarView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Divider()
-
-            // Floating bar toggle
             Button(action: {
                 if FloatingWindowController.shared.isVisible {
                     FloatingWindowController.shared.hideWindow()

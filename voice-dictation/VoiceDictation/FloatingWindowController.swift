@@ -44,7 +44,7 @@ final class FloatingWindowController: ObservableObject {
             panel?.backgroundColor = .clear
             panel?.isMovableByWindowBackground = true
             panel?.hidesOnDeactivate = false
-            panel?.becomesKeyOnlyIfNeeded = false
+            panel?.becomesKeyOnlyIfNeeded = true
             panel?.worksWhenModal = true
             panel?.contentViewController = hostingController
 
