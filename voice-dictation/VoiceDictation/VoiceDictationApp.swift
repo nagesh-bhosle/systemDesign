@@ -17,7 +17,19 @@ struct VoiceDictationApp: App {
             MenuBarView()
                 .environmentObject(appState)
         } label: {
-            Image(systemName: appState.statusIcon)
+            if appState.status == .recording {
+                Image(systemName: "waveform")
+                    .foregroundColor(.red)
+                    .symbolEffect(.variableColor.iterative, options: .repeating)
+            } else if appState.status == .enhancing {
+                Image(systemName: "sparkles")
+                    .symbolEffect(.pulse, options: .repeating)
+            } else if appState.status == .error {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.red)
+            } else {
+                Image(systemName: "mic.fill")
+            }
         }
         .menuBarExtraStyle(.window)
 

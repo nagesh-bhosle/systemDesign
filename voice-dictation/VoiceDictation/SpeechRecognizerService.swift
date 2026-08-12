@@ -15,6 +15,7 @@ final class SpeechRecognizerService {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
+    var onPartialResult: ((String) -> Void)?
 
     init(locale: Locale = Locale(identifier: "en-US")) {
         speechRecognizer = SFSpeechRecognizer(locale: locale) ?? SFSpeechRecognizer()!
@@ -39,18 +40,25 @@ final class SpeechRecognizerService {
             completion(.failure(NSError(domain: "SpeechRecognizer", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not create recognition request"])))
             return
         }
-        recognitionRequest.shouldReportPartialResults = false
+        recognitionRequest.shouldReportPartialResults = true
 
         // Start recognition task
-        recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { result, error in
+        recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
             if let error = error {
                 completion(.failure(error))
                 return
             }
 
-            if let result = result, result.isFinal {
+            if let result = result {
                 let text = result.bestTranscription.formattedString
-                completion(.success(text))
+                if result.isFinal {
+                    completion(.success(text))
+                } else {
+                    // Partial result — update floating window
+                    DispatchQueue.main.async {
+                        self?.onPartialResult?(text)
+                    }
+                }
             }
         }
 

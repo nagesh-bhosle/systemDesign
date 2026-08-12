@@ -21,9 +21,12 @@ enum DictationStatus: String {
 final class AppState: ObservableObject {
     @Published var status: DictationStatus = .idle
     @Published var lastTranscript: String = ""
+    @Published var liveTranscript: String = ""
     @Published var errorMessage: String = ""
     @Published var apiKey: String = KeychainHelper.shared.loadAPIKey() ?? ""
     @Published var enhanceEnabled: Bool = true
+    @Published var showFloatingWindow: Bool = true
+    @Published var history: [TranscriptEntry] = TranscriptHistory.shared.loadHistory()
 
     var statusIcon: String {
         switch status {
@@ -57,6 +60,12 @@ final class AppState: ObservableObject {
 
     private func startRecording() {
         errorMessage = ""
+        liveTranscript = ""
+
+        // Show floating window
+        if showFloatingWindow {
+            FloatingWindowController.shared.showWindow(appState: self)
+        }
 
         // Check speech recognition permission
         speechRecognizer.requestAuthorization { [weak self] granted in
@@ -68,11 +77,18 @@ final class AppState: ObservableObject {
                     return
                 }
 
+                self.speechRecognizer.onPartialResult = { text in
+                    DispatchQueue.main.async {
+                        self.liveTranscript = text
+                    }
+                }
+
                 self.speechRecognizer.startRecognition { result in
                     DispatchQueue.main.async {
                         switch result {
                         case .success(let text):
                             self.rawTranscript = text
+                            self.liveTranscript = ""
                             self.processTranscript(text)
                         case .failure(let error):
                             self.status = .error
@@ -102,8 +118,10 @@ final class AppState: ObservableObject {
         // If no API key or enhancement disabled, use raw transcript
         guard enhanceEnabled, !apiKey.isEmpty else {
             lastTranscript = trimmed
+            saveToHistory(text: trimmed)
             TextInserter.shared.insertOrCopy(trimmed)
             status = .idle
+            hideFloatingWindow()
             return
         }
 
@@ -114,17 +132,39 @@ final class AppState: ObservableObject {
                 switch result {
                 case .success(let enhanced):
                     self.lastTranscript = enhanced
+                    self.saveToHistory(text: enhanced)
                     TextInserter.shared.insertOrCopy(enhanced)
                     self.status = .idle
+                    self.hideFloatingWindow()
                 case .failure(let error):
                     // Fallback: use raw transcript if LLM fails
                     print("⚠️ LLM enhancement failed: \(error.localizedDescription)")
                     self.lastTranscript = trimmed
+                    self.saveToHistory(text: trimmed)
                     TextInserter.shared.insertOrCopy(trimmed)
                     self.status = .idle
+                    self.hideFloatingWindow()
                     self.errorMessage = "LLM cleanup failed (using raw text): \(error.localizedDescription)"
                 }
             }
         }
+    }
+
+    private func hideFloatingWindow() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            // Keep window visible for 2 seconds after completion so user can see result
+            if self.status == .idle {
+                FloatingWindowController.shared.hideWindow()
+            }
+        }
+    }
+
+    private func saveToHistory(text: String) {
+        let entry = TranscriptEntry(text: text, timestamp: Date())
+        history.insert(entry, at: 0)
+        if history.count > 100 {
+            history.removeLast()
+        }
+        TranscriptHistory.shared.saveHistory(history)
     }
 }

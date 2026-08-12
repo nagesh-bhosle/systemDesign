@@ -10,14 +10,32 @@ import SwiftUI
 struct MenuBarView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.openSettings) private var openSettings
+    @State private var showHistory = false
 
     var body: some View {
         VStack(spacing: 12) {
-            // Status
+            // Status with animated waveform
             HStack {
-                Image(systemName: appState.statusIcon)
-                    .foregroundColor(appState.status == .recording ? .red : .primary)
-                    .font(.title2)
+                if appState.status == .recording {
+                    HStack(spacing: 3) {
+                        ForEach(0..<4, id: \.self) { i in
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(Color.red)
+                                .frame(width: 3, height: 16)
+                                .scaleEffect(y: appState.status == .recording ? 1.0 : 0.3)
+                                .animation(
+                                    .easeInOut(duration: 0.35)
+                                        .repeatForever(autoreverses: true)
+                                        .delay(Double(i) * 0.12),
+                                    value: appState.status == .recording
+                                )
+                        }
+                    }
+                } else {
+                    Image(systemName: appState.statusIcon)
+                        .foregroundColor(appState.status == .error ? .red : .primary)
+                        .font(.title2)
+                }
                 Text(appState.status.rawValue)
                     .font(.headline)
                 Spacer()
@@ -64,10 +82,13 @@ struct MenuBarView: View {
 
             Divider()
 
-            // Settings & Quit
+            // Settings, History & Quit
             HStack {
                 Button("Settings") {
                     openSettings()
+                }
+                Button("History") {
+                    showHistory = true
                 }
                 Spacer()
                 Button("Quit") {
@@ -82,6 +103,10 @@ struct MenuBarView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleDictation)) { _ in
             appState.toggleRecording()
+        }
+        .sheet(isPresented: $showHistory) {
+            HistoryView()
+                .environmentObject(appState)
         }
     }
 }
