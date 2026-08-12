@@ -16,7 +16,7 @@ struct FloatingWindowView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            // Status indicator
+            // Status indicator (always visible — the mic icon)
             if appState.status == .recording {
                 HStack(spacing: 2) {
                     ForEach(0..<4, id: \.self) { i in
@@ -38,24 +38,26 @@ struct FloatingWindowView: View {
                     .foregroundColor(appState.status == .error ? .red : .accentColor)
             }
 
-            // Status text or live transcript
-            if !appState.liveTranscript.isEmpty {
-                Text(appState.liveTranscript)
-                    .font(.system(size: 11))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else if appState.status == .enhancing {
-                Text("Enhancing...")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Text("Voice Dictation")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            // Status text or live transcript (only when hovered or recording)
+            if isHovered || appState.status == .recording || appState.status == .enhancing {
+                if !appState.liveTranscript.isEmpty {
+                    Text(appState.liveTranscript)
+                        .font(.system(size: 11))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else if appState.status == .enhancing {
+                    Text("Enhancing...")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text("Voice Dictation")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
 
             // ── Action buttons (visible on hover) ──
@@ -118,9 +120,12 @@ struct FloatingWindowView: View {
                 .transition(.scale.combined(with: .opacity))
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, isHovered || appState.status == .recording || appState.status == .enhancing ? 10 : 8)
         .padding(.vertical, 7)
-        .frame(width: isHovered ? 340 : 160, height: 40)
+        .frame(
+            width: isHovered ? 340 : (appState.status == .recording || appState.status == .enhancing ? 200 : 36),
+            height: 40
+        )
         .background(
             RoundedRectangle(cornerRadius: 14)
                 .fill(.ultraThinMaterial)

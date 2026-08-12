@@ -27,8 +27,8 @@ final class FloatingWindowController: ObservableObject {
             let hostingController = NSHostingController(rootView: AnyView(contentView))
             self.hostingController = hostingController
 
-            // Panel starts compact (160) and expands to 340 on hover.
-            let panelSize = NSSize(width: 160, height: 40)
+            // Panel starts tiny (36 — just mic icon) and expands to 340 on hover.
+            let panelSize = NSSize(width: 36, height: 40)
             let panelFrame = NSRect(x: 0, y: 0, width: panelSize.width, height: panelSize.height)
 
             panel = NSPanel(
@@ -50,8 +50,8 @@ final class FloatingWindowController: ObservableObject {
             panel?.acceptsMouseMovedEvents = true
             panel?.contentViewController = hostingController
 
-            // Panel can resize between compact (160) and expanded (340)
-            panel?.contentMinSize = NSSize(width: 160, height: 40)
+            // Panel can resize between tiny (36) and expanded (340)
+            panel?.contentMinSize = NSSize(width: 36, height: 40)
             panel?.contentMaxSize = NSSize(width: 340, height: 40)
             panel?.canBecomeVisibleWithoutLogin = true
 
@@ -73,11 +73,11 @@ final class FloatingWindowController: ObservableObject {
         isVisible = false
     }
 
-    /// Resize the panel between compact (160) and expanded (340) on hover.
+    /// Resize the panel between tiny (36 — just mic icon) and expanded (340) on hover.
     /// Keeps the top-center position fixed.
     func resizePanel(isHovered: Bool) {
         guard let panel = panel else { return }
-        let targetWidth: CGFloat = isHovered ? 340 : 160
+        let targetWidth: CGFloat = isHovered ? 340 : 36
         let currentFrame = panel.frame
         // Keep top-center fixed: recompute x so the center stays the same
         let centerX = currentFrame.midX
