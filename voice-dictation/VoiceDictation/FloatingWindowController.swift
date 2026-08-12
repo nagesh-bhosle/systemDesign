@@ -27,7 +27,7 @@ final class FloatingWindowController: ObservableObject {
             let hostingController = NSHostingController(rootView: AnyView(contentView))
             self.hostingController = hostingController
 
-            let panelSize = NSSize(width: 400, height: 60)
+            let panelSize = NSSize(width: 360, height: 50)
             let panelFrame = NSRect(x: 0, y: 0, width: panelSize.width, height: panelSize.height)
 
             panel = NSPanel(
