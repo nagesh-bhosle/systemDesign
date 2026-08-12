@@ -20,36 +20,31 @@ MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 BINARY="$MACOS_DIR/VoiceDictation"
 
-# ── Colours ──────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-echo -e "${GREEN}🎙️  Voice Dictation — Build & Run${NC}"
+echo -e "${GREEN}Voice Dictation — Build & Run${NC}"
 echo ""
 
-# ── Check for Xcode Command Line Tools ──────────────────
 if ! xcrun --show-sdk-path > /dev/null 2>&1; then
-    echo -e "${RED}❌ Xcode Command Line Tools not found.${NC}"
+    echo -e "${RED}Xcode Command Line Tools not found.${NC}"
     echo -e "${YELLOW}   Run: xcode-select --install${NC}"
     exit 1
 fi
 
-# Issue #32: Only do a full clean build when explicitly requested
 if [ "$1" = "clean" ]; then
-    echo -e "${YELLOW}🧹 Full clean build...${NC}"
+    echo -e "${YELLOW}Full clean build...${NC}"
     rm -rf "$BUILD_DIR"
 fi
 
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
-# ── Build ─────────────────────────────────────────────────
-echo -e "${YELLOW}🔨 Building...${NC}"
+echo -e "${YELLOW}Building...${NC}"
 
 ARCH=$(uname -m)
 
-# Direct swiftc compilation (SPM is broken with Command Line Tools only)
 if swiftc -O \
     -parse-as-library \
     -target "${ARCH}-apple-macosx14.0" \
@@ -62,28 +57,32 @@ if swiftc -O \
     -framework Security \
     -framework UserNotifications \
     -framework Speech \
+    -framework ServiceManagement \
     VoiceDictation/*.swift \
     -o "$BINARY" 2>&1; then
-    echo -e "${GREEN}✅ Built with swiftc${NC}"
+    echo -e "${GREEN}Built with swiftc${NC}"
 else
-    echo -e "${RED}❌ Build failed.${NC}"
+    echo -e "${RED}Build failed.${NC}"
     exit 1
 fi
 
-# ── Assemble .app bundle ──────────────────────────────────
 cp VoiceDictation/Info.plist "$CONTENTS_DIR/Info.plist"
-# Issue #48: Use printf instead of echo to avoid trailing newline
 printf 'APPL????' > "$CONTENTS_DIR/PkgInfo"
 
-echo -e "${GREEN}📦 App bundle: $APP_DIR${NC}"
+echo -e "${GREEN}App bundle: $APP_DIR${NC}"
 
-# ── Launch (unless build-only) ──────────────────────────
+if [ -n "$CODESIGN_IDENTITY" ]; then
+    echo -e "${YELLOW}Codesigning with identity: $CODESIGN_IDENTITY${NC}"
+    codesign --force --sign "$CODESIGN_IDENTITY" --timestamp=none "$APP_DIR" || {
+        echo -e "${YELLOW}Codesign failed (non-fatal)${NC}"
+    }
+fi
+
 if [ "$1" != "build" ]; then
-    echo -e "${GREEN}🚀 Launching...${NC}"
+    echo -e "${GREEN}Launching...${NC}"
     echo ""
-    # Issue #17: Updated message — Abacus AI, not OpenAI
-    echo "  📋 Optional: Click the 🎤 icon in the menu bar → Settings → paste your Abacus AI API key"
-    echo "  ⌨️  Press ⌥⇧Space anywhere to start/stop recording"
+    echo "  Optional: Click the mic icon in the menu bar → Settings → paste your Abacus AI API key"
+    echo "  Press Option+Shift+Space anywhere to start/stop recording"
     echo ""
     open "$APP_DIR"
 fi

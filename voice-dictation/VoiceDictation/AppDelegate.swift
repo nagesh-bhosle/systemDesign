@@ -2,7 +2,7 @@
 //  AppDelegate.swift
 //  VoiceDictation
 //
-//  Registers the global hotkey and manages floating window.
+//  Registers the global hotkey and manages app lifecycle.
 //
 
 import Cocoa
@@ -13,17 +13,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: "com.nagesh.voicedictation", category: "AppDelegate")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Issue #13: Check registration result and log if it fails
         if !HotkeyManager.shared.registerHotkey() {
             logger.error("Failed to register global hotkey — possible conflict with another app")
-            // Show alert to user
             DispatchQueue.main.async {
                 let alert = NSAlert()
                 alert.messageText = "Hotkey Registration Failed"
-                alert.informativeText = "Voice Dictation could not register ⌥⇧Space. Another app may be using this shortcut. Try quitting conflicting apps and restarting Voice Dictation."
+                alert.informativeText = "Voice Dictation could not register ⌥⇧Space. Another app may be using this shortcut. You can still start and stop recording from the menu bar. Settings are also available from the menu bar icon."
                 alert.alertStyle = .warning
                 alert.addButton(withTitle: "OK")
                 alert.runModal()
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            AppState.shared?.checkPermissionsAndShowOnboardingIfNeeded()
+            if AppState.shared?.showOnboarding == true, let state = AppState.shared {
+                state.presentOnboarding()
             }
         }
     }

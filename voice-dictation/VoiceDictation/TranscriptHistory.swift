@@ -30,6 +30,12 @@ struct TranscriptEntry: Identifiable, Codable, Equatable {
     var formattedTime: String {
         Self.dateFormatter.string(from: timestamp)
     }
+
+    var relativeTime: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: timestamp, relativeTo: Date())
+    }
 }
 
 final class TranscriptHistory {
@@ -79,5 +85,11 @@ final class TranscriptHistory {
 
     func clearHistory() {
         try? FileManager.default.removeItem(at: fileURL)
+    }
+
+    func deleteEntry(id: UUID, from entries: [TranscriptEntry]) -> [TranscriptEntry] {
+        let updated = entries.filter { $0.id != id }
+        saveHistory(updated)
+        return updated
     }
 }

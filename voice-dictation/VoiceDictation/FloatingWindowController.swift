@@ -2,14 +2,12 @@
 //  FloatingWindowController.swift
 //  VoiceDictation
 //
-//  Manages the floating window that appears during recording.
-//  Uses NSPanel so it floats above other windows without stealing focus.
+//  Manages the floating window lifecycle.
 //
 
 import Cocoa
 import SwiftUI
 
-// Issue #53: Annotate with @MainActor since always accessed from main thread
 @MainActor
 final class FloatingWindowController: ObservableObject {
     static let shared = FloatingWindowController()
@@ -19,21 +17,21 @@ final class FloatingWindowController: ObservableObject {
 
     @Published var isVisible = false
 
-    // Issue #22: Persist window position
     private let positionKey = "floatingWindowPosition"
+    private let idleWidth: CGFloat = 36
+    private let activeWidth: CGFloat = 300
+    private let panelHeight: CGFloat = 36
 
     private init() {}
 
     func showWindow(appState: AppState) {
-        // Issue #20: Always recreate the hosting controller with current appState
-        // so the panel references the correct instance
         let contentView = FloatingWindowView()
             .environmentObject(appState)
 
         let newHostingController = NSHostingController(rootView: AnyView(contentView))
 
         if panel == nil {
-            let panelSize = NSSize(width: 36, height: 40)
+            let panelSize = NSSize(width: idleWidth, height: panelHeight)
             let panelFrame = NSRect(x: 0, y: 0, width: panelSize.width, height: panelSize.height)
 
             panel = NSPanel(
@@ -53,14 +51,16 @@ final class FloatingWindowController: ObservableObject {
             panel?.becomesKeyOnlyIfNeeded = true
             panel?.worksWhenModal = true
             panel?.acceptsMouseMovedEvents = true
-            panel?.contentMinSize = NSSize(width: 36, height: 40)
-            panel?.contentMaxSize = NSSize(width: 340, height: 40)
+            panel?.contentMinSize = NSSize(width: idleWidth, height: panelHeight)
+            panel?.contentMaxSize = NSSize(width: 340, height: panelHeight)
             panel?.canBecomeVisibleWithoutLogin = true
 
-            // Issue #22: Restore saved position or default to top-center
             if let savedPosition = UserDefaults.standard.array(forKey: positionKey) as? [CGFloat],
                savedPosition.count == 2 {
-                panel?.setFrame(NSRect(x: savedPosition[0], y: savedPosition[1], width: panelSize.width, height: panelSize.height), display: true)
+                panel?.setFrame(
+                    NSRect(x: savedPosition[0], y: savedPosition[1], width: panelSize.width, height: panelSize.height),
+                    display: true
+                )
             } else if let screen = NSScreen.main {
                 let screenFrame = screen.visibleFrame
                 let x = (screenFrame.width - panelSize.width) / 2 + screenFrame.minX
@@ -69,7 +69,6 @@ final class FloatingWindowController: ObservableObject {
             }
         }
 
-        // Issue #20: Update hosting controller with current appState
         panel?.contentViewController = newHostingController
         self.hostingController = newHostingController
 
@@ -78,7 +77,6 @@ final class FloatingWindowController: ObservableObject {
     }
 
     func hideWindow() {
-        // Issue #22: Save position before hiding
         if let frame = panel?.frame {
             UserDefaults.standard.set([frame.origin.x, frame.origin.y], forKey: positionKey)
         }
@@ -86,27 +84,17 @@ final class FloatingWindowController: ObservableObject {
         isVisible = false
     }
 
-    // Issue #21: Consolidated resize method
     func resizePanel(width: CGFloat) {
         guard let panel = panel else { return }
+        let clampedWidth = min(max(width, idleWidth), 340)
         let currentFrame = panel.frame
         let centerX = currentFrame.midX
-        let newX = centerX - width / 2
-        let newY = currentFrame.maxY - 40
-        let newFrame = NSRect(x: newX, y: newY, width: width, height: 40)
-        if abs(currentFrame.width - width) > 0.5 {
+        let newX = centerX - clampedWidth / 2
+        let newY = currentFrame.maxY - panelHeight
+        let newFrame = NSRect(x: newX, y: newY, width: clampedWidth, height: panelHeight)
+        if abs(currentFrame.width - clampedWidth) > 0.5 {
             panel.setFrame(newFrame, display: true, animate: false)
         }
-    }
-
-    /// Convenience method for hover-based resize (tiny ↔ expanded)
-    func resizePanel(isHovered: Bool) {
-        resizePanel(width: isHovered ? 340 : 36)
-    }
-
-    /// Convenience method for state-based resize
-    func resizePanelForState(width: CGFloat) {
-        resizePanel(width: width)
     }
 
     func toggleWindow(appState: AppState) {

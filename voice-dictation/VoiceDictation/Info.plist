@@ -9,9 +9,9 @@
     <key>CFBundleIdentifier</key>
     <string>com.nagesh.voicedictation</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>2</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>0.2.0</string>
     <key>CFBundleExecutable</key>
     <string>VoiceDictation</string>
     <key>CFBundlePackageType</key>
@@ -20,12 +20,17 @@
     <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.productivity</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright 2026 Voice Dictation. All rights reserved.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Voice Dictation needs microphone access to transcribe your speech to text.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Voice Dictation uses speech recognition to convert your voice to text on-device.</string>
     <key>NSUserNotificationsUsageDescription</key>
     <string>Voice Dictation sends notifications when text is copied to clipboard.</string>
-    <!-- Issue #44: Removed NSAppleEventsUsageDescription — not needed since we use NSWorkspace.open() not Apple Events -->
 </dict>
 </plist>

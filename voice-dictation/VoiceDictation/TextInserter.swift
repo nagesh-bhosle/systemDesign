@@ -3,13 +3,6 @@
 //  VoiceDictation
 //
 //  Inserts transcribed text at the cursor position.
-//  Strategy:
-//    1. Save existing clipboard contents.
-//    2. Copy text to clipboard.
-//    3. Check accessibility permission (without prompting if already granted).
-//    4. Simulate Cmd+V to paste at cursor.
-//    5. Restore previous clipboard contents after a short delay.
-//    6. Fallback: keep text on clipboard + show notification.
 //
 
 import Cocoa
@@ -24,23 +17,27 @@ final class TextInserter {
 
     private let hasPromptedAccessibilityKey = "hasPromptedAccessibility"
 
+    var clipboardOnlyMode: Bool = false
+    var restoreClipboardEnabled: Bool = true
+
     private init() {
         requestNotificationAuthorization()
     }
 
     // MARK: - Public
 
-    /// Inserts text at cursor or copies to clipboard as fallback.
-    /// Calls `completion` on the main thread with `true` if paste succeeded,
-    /// `false` if only clipboard fallback was used.
     func insertOrCopy(_ text: String, completion: ((Bool) -> Void)? = nil) {
-        // Save existing clipboard contents so we can restore after paste
         let previousClipboard = saveClipboardContents()
-
         copyToClipboardSync(text)
 
+        if clipboardOnlyMode {
+            logger.info("Clipboard-only mode — text on clipboard (\(text.count) chars)")
+            showNotification(text)
+            completion?(false)
+            return
+        }
+
         if AXIsProcessTrusted() {
-            // Small delay to ensure clipboard is set before simulating paste
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
                 guard let self = self else {
                     completion?(false)
@@ -49,20 +46,19 @@ final class TextInserter {
                 let pasteSucceeded = self.simulatePaste()
                 if pasteSucceeded {
                     self.logger.info("Text pasted at cursor (\(text.count) chars)")
-                    // Restore previous clipboard after paste has had time to execute
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        self.restoreClipboardContents(previousClipboard)
+                    if self.restoreClipboardEnabled {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            self.restoreClipboardContents(previousClipboard)
+                        }
                     }
                     completion?(true)
                 } else {
-                    // Paste simulation failed — keep text on clipboard and notify
                     self.logger.warning("Paste simulation failed — text on clipboard (\(text.count) chars)")
                     self.showNotification(text)
                     completion?(false)
                 }
             }
         } else {
-            // No accessibility permission — prompt once, then fall back to notification
             if !hasPromptedAccessibility() {
                 promptAccessibility()
                 markPromptedAccessibility()
@@ -85,21 +81,23 @@ final class TextInserter {
     private struct ClipboardContents {
         let stringData: String?
         let rtfData: Data?
+        let htmlData: Data?
         let pdfData: Data?
+        let tiffData: Data?
+        let pngData: Data?
         let fileURLs: [URL]
     }
 
     private func saveClipboardContents() -> ClipboardContents {
         let pb = NSPasteboard.general
-        let stringData = pb.string(forType: .string)
-        let rtfData = pb.data(forType: .rtf)
-        let pdfData = pb.data(forType: .pdf)
-        let fileURLs = (pb.readObjects(forClasses: [NSURL.self], options: nil) as? [URL]) ?? []
         return ClipboardContents(
-            stringData: stringData,
-            rtfData: rtfData,
-            pdfData: pdfData,
-            fileURLs: fileURLs
+            stringData: pb.string(forType: .string),
+            rtfData: pb.data(forType: .rtf),
+            htmlData: pb.data(forType: .html),
+            pdfData: pb.data(forType: .pdf),
+            tiffData: pb.data(forType: .tiff),
+            pngData: pb.data(forType: .png),
+            fileURLs: (pb.readObjects(forClasses: [NSURL.self], options: nil) as? [URL]) ?? []
         )
     }
 
@@ -119,9 +117,24 @@ final class TextInserter {
             item.setData(rtfData, forType: .rtf)
             items.append(item)
         }
+        if let htmlData = contents.htmlData {
+            let item = NSPasteboardItem()
+            item.setData(htmlData, forType: .html)
+            items.append(item)
+        }
         if let pdfData = contents.pdfData {
             let item = NSPasteboardItem()
             item.setData(pdfData, forType: .pdf)
+            items.append(item)
+        }
+        if let tiffData = contents.tiffData {
+            let item = NSPasteboardItem()
+            item.setData(tiffData, forType: .tiff)
+            items.append(item)
+        }
+        if let pngData = contents.pngData {
+            let item = NSPasteboardItem()
+            item.setData(pngData, forType: .png)
             items.append(item)
         }
         if !contents.fileURLs.isEmpty {
@@ -152,16 +165,12 @@ final class TextInserter {
 
     // MARK: - Simulate Paste (Cmd+V)
 
-    /// Simulates Cmd+V keypress. Returns true only if there is a focused app
-    /// that can receive keyboard events.
     private func simulatePaste() -> Bool {
-        // Check that there is a frontmost application that can receive key events
         guard let frontApp = NSWorkspace.shared.frontmostApplication else {
             logger.warning("No frontmost application — cannot simulate paste")
             return false
         }
 
-        // If the frontmost app is our own menu bar app, there's nowhere to paste
         if frontApp.bundleIdentifier == Bundle.main.bundleIdentifier {
             logger.warning("Frontmost app is VoiceDictation itself — nowhere to paste")
             return false
@@ -169,18 +178,22 @@ final class TextInserter {
 
         let source = CGEventSource(stateID: CGEventSourceStateID.privateState)
 
-        let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: true)
-        cmdDown?.flags = CGEventFlags.maskCommand
-        let vDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
-        vDown?.flags = CGEventFlags.maskCommand
-        let vUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
-        vUp?.flags = CGEventFlags.maskCommand
-        let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: false)
+        guard let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: true),
+              let vDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true),
+              let vUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false),
+              let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: false) else {
+            logger.warning("Failed to create CGEvent for paste simulation")
+            return false
+        }
 
-        cmdDown?.post(tap: CGEventTapLocation.cghidEventTap)
-        vDown?.post(tap: CGEventTapLocation.cghidEventTap)
-        vUp?.post(tap: CGEventTapLocation.cghidEventTap)
-        cmdUp?.post(tap: CGEventTapLocation.cghidEventTap)
+        cmdDown.flags = CGEventFlags.maskCommand
+        vDown.flags = CGEventFlags.maskCommand
+        vUp.flags = CGEventFlags.maskCommand
+
+        cmdDown.post(tap: CGEventTapLocation.cghidEventTap)
+        vDown.post(tap: CGEventTapLocation.cghidEventTap)
+        vUp.post(tap: CGEventTapLocation.cghidEventTap)
+        cmdUp.post(tap: CGEventTapLocation.cghidEventTap)
 
         return true
     }

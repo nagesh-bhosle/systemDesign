@@ -3,7 +3,6 @@
 //  VoiceDictation
 //
 //  On-device speech recognition using Apple's SFSpeechRecognizer.
-//  No API key needed — works entirely on-device.
 //
 
 import Foundation
@@ -11,13 +10,14 @@ import Speech
 import AVFoundation
 import os
 
-// Issue #37: Proper error types instead of hardcoded NSError
 enum SpeechRecognizerError: LocalizedError {
     case recognizerUnavailable
     case couldNotCreateRequest
     case invalidAudioFormat
     case audioEngineStartFailed(Error)
     case recognitionFailed(Error)
+    case cancelled
+    case onDeviceUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -31,6 +31,10 @@ enum SpeechRecognizerError: LocalizedError {
             return "Could not start audio engine: \(error.localizedDescription)"
         case .recognitionFailed(let error):
             return "Recognition failed: \(error.localizedDescription)"
+        case .cancelled:
+            return "Recognition was cancelled."
+        case .onDeviceUnavailable:
+            return "On-device speech recognition is not available. Using server-based recognition instead."
         }
     }
 }
@@ -42,23 +46,37 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
     private var recognitionTask: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
 
-    // Issue #2: All mutable state is accessed on a serial queue to prevent data races
     private let stateQueue = DispatchQueue(label: "com.nagesh.voicedictation.speech-state")
     private var _completion: ((Result<String, Error>) -> Void)?
     private var _hasCompleted: Bool = false
     private var _isRunning: Bool = false
     private var _lastPartialText: String = ""
 
+    private var localeIdentifier: String
+    private var requiresOnDevice: Bool = true
+    private(set) var onDeviceFallbackMessage: String?
+
     var onPartialResult: ((String) -> Void)?
 
-    init(locale: Locale = Locale(identifier: "en-US")) {
+    init(localeIdentifier: String = "en-US") {
+        self.localeIdentifier = localeIdentifier
+        super.init()
+        configureRecognizer(localeIdentifier: localeIdentifier)
+    }
+
+    func updateConfiguration(localeIdentifier: String, requiresOnDevice: Bool) {
+        self.localeIdentifier = localeIdentifier
+        self.requiresOnDevice = requiresOnDevice
+        configureRecognizer(localeIdentifier: localeIdentifier)
+    }
+
+    private func configureRecognizer(localeIdentifier: String) {
+        let locale = Locale(identifier: localeIdentifier)
         if let recognizer = SFSpeechRecognizer(locale: locale) {
             speechRecognizer = recognizer
         } else {
             speechRecognizer = SFSpeechRecognizer()
         }
-        super.init()
-        // Issue #49: Observe availability changes at runtime
         speechRecognizer?.delegate = self
     }
 
@@ -68,7 +86,6 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
 
     // MARK: - SFSpeechRecognizerDelegate
 
-    // Issue #49: Handle availability changes at runtime
     func speechRecognizer(_ speechRecognizer: SFSpeechRecognizer, availabilityDidChange available: Bool) {
         if !available {
             logger.warning("Speech recognizer became unavailable mid-session")
@@ -104,15 +121,37 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
 
     // MARK: - Permission
 
-    func requestAuthorization(completion: @escaping (Bool) -> Void) {
-        AVAudioApplication.requestRecordPermission { micGranted in
-            guard micGranted else {
-                DispatchQueue.main.async { completion(false) }
-                return
+    func requestAuthorization(completion: @escaping (PermissionAuthResult) -> Void) {
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        switch micStatus {
+        case .authorized:
+            requestSpeechAuthorization(completion: completion)
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                if granted {
+                    self.requestSpeechAuthorization(completion: completion)
+                } else {
+                    DispatchQueue.main.async { completion(.microphoneDenied) }
+                }
             }
+        default:
+            DispatchQueue.main.async { completion(.microphoneDenied) }
+        }
+    }
+
+    private func requestSpeechAuthorization(completion: @escaping (PermissionAuthResult) -> Void) {
+        let speechStatus = SFSpeechRecognizer.authorizationStatus()
+        switch speechStatus {
+        case .authorized:
+            DispatchQueue.main.async { completion(.granted) }
+        case .notDetermined:
             SFSpeechRecognizer.requestAuthorization { status in
-                DispatchQueue.main.async { completion(status == .authorized) }
+                DispatchQueue.main.async {
+                    completion(status == .authorized ? .granted : .speechDenied)
+                }
             }
+        default:
+            DispatchQueue.main.async { completion(.speechDenied) }
         }
     }
 
@@ -120,6 +159,7 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
 
     func startRecognition(completion: @escaping (Result<String, Error>) -> Void) {
         cancel()
+        onDeviceFallbackMessage = nil
 
         guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
             completion(.failure(SpeechRecognizerError.recognizerUnavailable))
@@ -140,10 +180,27 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
         }
         recognitionRequest.shouldReportPartialResults = true
 
+        if requiresOnDevice {
+            if speechRecognizer.supportsOnDeviceRecognition {
+                recognitionRequest.requiresOnDeviceRecognition = true
+            } else {
+                logger.warning("On-device recognition not supported — falling back to server")
+                onDeviceFallbackMessage = SpeechRecognizerError.onDeviceUnavailable.errorDescription
+                recognitionRequest.requiresOnDeviceRecognition = false
+            }
+        } else {
+            recognitionRequest.requiresOnDeviceRecognition = false
+        }
+
         recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
             guard let self = self else { return }
 
             if let error = error {
+                let nsError = error as NSError
+                if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
+                    self.finish(with: .failure(SpeechRecognizerError.cancelled))
+                    return
+                }
                 self.finish(with: .failure(SpeechRecognizerError.recognitionFailed(error)))
                 return
             }
@@ -196,8 +253,6 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
 
         stateQueue.sync { _isRunning = false }
 
-        // If the recognition task doesn't call back within 3 seconds,
-        // force-complete with whatever we have (or empty string)
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
             guard let self = self else { return }
             let shouldFinish: Bool = self.stateQueue.sync {
@@ -213,10 +268,8 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
         }
     }
 
-    // Issue #10: cancel() now calls the completion with a cancellation error
-    // so the caller knows the result was dropped intentionally.
     func cancel() {
-        let shouldCallCompletion: Bool = stateQueue.sync {
+        stateQueue.sync {
             let wasRunning = _isRunning && !_hasCompleted
             _hasCompleted = true
             _isRunning = false
@@ -224,10 +277,9 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             _completion = nil
             if wasRunning, let cb = cb {
                 DispatchQueue.main.async {
-                    cb(.failure(SpeechRecognizerError.recognizerUnavailable))
+                    cb(.failure(SpeechRecognizerError.cancelled))
                 }
             }
-            return wasRunning
         }
 
         recognitionTask?.cancel()
@@ -237,7 +289,6 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             audioEngine.inputNode.removeTap(onBus: 0)
             audioEngine.stop()
         }
-        _ = shouldCallCompletion // suppress unused warning
     }
 
     // MARK: - Private

@@ -3,7 +3,6 @@
 //  VoiceDictation
 //
 //  Central observable state for the app.
-//  Flow: On-device speech recognition → Abacus LLM text cleanup → paste at cursor.
 //
 
 import Foundation
@@ -19,6 +18,18 @@ enum DictationStatus: String {
     case error = "Error"
 }
 
+enum UserDefaultsKey {
+    static let enhanceEnabled = "enhanceEnabled"
+    static let showFloatingWindow = "showFloatingWindow"
+    static let onDeviceRecognition = "onDeviceRecognition"
+    static let saveHistory = "saveHistory"
+    static let speechLocale = "speechLocale"
+    static let clipboardOnlyMode = "clipboardOnlyMode"
+    static let restoreClipboard = "restoreClipboard"
+    static let hasCompletedOnboarding = "hasCompletedOnboarding"
+    static let launchAtLogin = "launchAtLogin"
+}
+
 @MainActor
 final class AppState: ObservableObject {
     private let logger = Logger(subsystem: "com.nagesh.voicedictation", category: "AppState")
@@ -27,12 +38,114 @@ final class AppState: ObservableObject {
     @Published var lastTranscript: String = ""
     @Published var liveTranscript: String = ""
     @Published var errorMessage: String = ""
+    @Published var statusMessage: String = ""
     @Published var apiKey: String = KeychainHelper.shared.loadAPIKey() ?? ""
-    @Published var enhanceEnabled: Bool = false  // Issue #19: Default false when no key
-    @Published var showFloatingWindow: Bool = true
-    @Published var llmModel: String = UserDefaults.standard.string(forKey: "llmModel") ?? "meta-llama/Meta-Llama-3.1-8B-Instruct"  // Issue #16: Cheaper default
+    @Published var enhanceEnabled: Bool = UserDefaults.standard.object(forKey: UserDefaultsKey.enhanceEnabled) as? Bool ?? false
+    @Published var showFloatingWindow: Bool = UserDefaults.standard.object(forKey: UserDefaultsKey.showFloatingWindow) as? Bool ?? true
+    @Published var onDeviceRecognition: Bool = UserDefaults.standard.object(forKey: UserDefaultsKey.onDeviceRecognition) as? Bool ?? true
+    @Published var saveHistoryEnabled: Bool = UserDefaults.standard.object(forKey: UserDefaultsKey.saveHistory) as? Bool ?? true
+    @Published var speechLocale: String = UserDefaults.standard.string(forKey: UserDefaultsKey.speechLocale) ?? "en-US"
+    @Published var clipboardOnlyMode: Bool = UserDefaults.standard.bool(forKey: UserDefaultsKey.clipboardOnlyMode)
+    @Published var restoreClipboard: Bool = UserDefaults.standard.object(forKey: UserDefaultsKey.restoreClipboard) as? Bool ?? true
+    @Published var launchAtLogin: Bool = LaunchAtLoginHelper.isEnabled
+    @Published var launchAtLoginError: String = ""
+    @Published var showOnboarding: Bool = false
+    @Published var llmModel: String = UserDefaults.standard.string(forKey: "llmModel") ?? AbacusLLMService.defaultModel
     @Published var llmEndpoint: String = UserDefaults.standard.string(forKey: "llmEndpoint") ?? "https://routellm.abacus.ai/v1/chat/completions"
     @Published var history: [TranscriptEntry] = TranscriptHistory.shared.loadHistory()
+
+    static var shared: AppState?
+
+    static func createPrimary() -> AppState {
+        let state = AppState()
+        AppState.shared = state
+        return state
+    }
+
+    var statusIcon: String {
+        switch status {
+        case .idle: return "mic.fill"
+        case .recording: return "mic.circle.fill"
+        case .transcribing: return "waveform.circle.fill"
+        case .enhancing: return "sparkles"
+        case .error: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    init(speechRecognizer: SpeechRecognizerService = SpeechRecognizerService(),
+         llmService: AbacusLLMService = AbacusLLMService()) {
+        self.speechRecognizer = speechRecognizer
+        self.llmService = llmService
+        syncTextInserterPreferences()
+        speechRecognizer.updateConfiguration(
+            localeIdentifier: speechLocale,
+            requiresOnDevice: onDeviceRecognition
+        )
+
+        if !UserDefaults.standard.bool(forKey: UserDefaultsKey.hasCompletedOnboarding) {
+            showOnboarding = true
+        }
+    }
+
+    // MARK: - Preferences
+
+    func saveEnhanceEnabled(_ enabled: Bool) {
+        enhanceEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: UserDefaultsKey.enhanceEnabled)
+    }
+
+    func saveShowFloatingWindow(_ show: Bool) {
+        showFloatingWindow = show
+        UserDefaults.standard.set(show, forKey: UserDefaultsKey.showFloatingWindow)
+        if show {
+            FloatingWindowController.shared.showWindow(appState: self)
+        } else {
+            FloatingWindowController.shared.hideWindow()
+        }
+    }
+
+    func saveOnDeviceRecognition(_ enabled: Bool) {
+        onDeviceRecognition = enabled
+        UserDefaults.standard.set(enabled, forKey: UserDefaultsKey.onDeviceRecognition)
+        speechRecognizer.updateConfiguration(localeIdentifier: speechLocale, requiresOnDevice: enabled)
+    }
+
+    func saveHistoryPreference(_ enabled: Bool) {
+        saveHistoryEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: UserDefaultsKey.saveHistory)
+    }
+
+    func saveSpeechLocale(_ locale: String) {
+        speechLocale = locale
+        UserDefaults.standard.set(locale, forKey: UserDefaultsKey.speechLocale)
+        speechRecognizer.updateConfiguration(localeIdentifier: locale, requiresOnDevice: onDeviceRecognition)
+    }
+
+    func saveClipboardOnlyMode(_ enabled: Bool) {
+        clipboardOnlyMode = enabled
+        UserDefaults.standard.set(enabled, forKey: UserDefaultsKey.clipboardOnlyMode)
+        syncTextInserterPreferences()
+    }
+
+    func saveRestoreClipboard(_ enabled: Bool) {
+        restoreClipboard = enabled
+        UserDefaults.standard.set(enabled, forKey: UserDefaultsKey.restoreClipboard)
+        syncTextInserterPreferences()
+    }
+
+    func saveLaunchAtLogin(_ enabled: Bool) {
+        launchAtLoginError = ""
+        let result = LaunchAtLoginHelper.setEnabled(enabled)
+        switch result {
+        case .success:
+            launchAtLogin = enabled
+            UserDefaults.standard.set(enabled, forKey: UserDefaultsKey.launchAtLogin)
+        case .failure(let error):
+            launchAtLoginError = error.localizedDescription
+            launchAtLogin = LaunchAtLoginHelper.isEnabled
+            UserDefaults.standard.set(launchAtLogin, forKey: UserDefaultsKey.launchAtLogin)
+        }
+    }
 
     func saveLLMModel(_ model: String) {
         llmModel = model
@@ -44,32 +157,32 @@ final class AppState: ObservableObject {
         UserDefaults.standard.set(endpoint, forKey: "llmEndpoint")
     }
 
-    static var shared: AppState?
-
-    // Issue #7: Only set shared in createPrimary, not in init
-    private var isPrimaryInstance = false
-
-    static func createPrimary() -> AppState {
-        let state = AppState()
-        state.isPrimaryInstance = true
-        AppState.shared = state
-        return state
+    func completeOnboarding() {
+        UserDefaults.standard.set(true, forKey: UserDefaultsKey.hasCompletedOnboarding)
+        showOnboarding = false
+        OnboardingWindowController.shared.hide()
     }
 
-    var statusIcon: String {
-        switch status {
-        case .idle:
-            return "mic.fill"
-        case .recording:
-            return "mic.circle.fill"
-        case .transcribing:
-            return "waveform.circle.fill"
-        case .enhancing:
-            return "sparkles"
-        case .error:
-            return "exclamationmark.triangle.fill"
+    func presentOnboarding() {
+        showOnboarding = true
+        OnboardingWindowController.shared.show(appState: self)
+    }
+
+    func checkPermissionsAndShowOnboardingIfNeeded() {
+        if !UserDefaults.standard.bool(forKey: UserDefaultsKey.hasCompletedOnboarding) {
+            showOnboarding = true
+            return
+        }
+        if PermissionHelper.isMicrophoneDenied || PermissionHelper.isSpeechDenied {
+            showOnboarding = true
         }
     }
+
+    func refreshPermissionState() {
+        objectWillChange.send()
+    }
+
+    // MARK: - Recording
 
     func toggleRecording() {
         switch status {
@@ -80,43 +193,47 @@ final class AppState: ObservableObject {
         case .transcribing:
             speechRecognizer.cancel()
             status = .idle
-            errorMessage = ""
+            clearMessages()
             liveTranscript = ""
         case .enhancing:
-            // Issue #5: Cancel in-flight LLM request
             llmService.cancel()
             llmTimedOut = true
             status = .idle
-            errorMessage = ""
+            clearMessages()
         }
     }
 
-    // Issue #34: Dependencies are created with default implementations but can be injected for testing
     private let speechRecognizer: SpeechRecognizerService
     private let llmService: AbacusLLMService
     private var rawTranscript: String = ""
+    private var llmTimedOut: Bool = false
+    private var transcriptionProcessed: Bool = false
+    private var isStartingRecording: Bool = false
+    private var errorClearTask: Task<Void, Never>?
+    private var llmTimeoutTask: Task<Void, Never>?
 
-    // Issue #1: These flags are on a @MainActor class, so they are only
-    // accessed on the main thread. Annotated for clarity.
-    @MainActor private var llmTimedOut: Bool = false
-    @MainActor private var transcriptionProcessed: Bool = false
-
-    // Issue #34: Injectable init for testing
-    init(speechRecognizer: SpeechRecognizerService = SpeechRecognizerService(),
-         llmService: AbacusLLMService = AbacusLLMService()) {
-        self.speechRecognizer = speechRecognizer
-        self.llmService = llmService
+    func toggleFloatingWindow() {
+        if FloatingWindowController.shared.isVisible {
+            FloatingWindowController.shared.hideWindow()
+            saveShowFloatingWindow(false)
+        } else {
+            FloatingWindowController.shared.showWindow(appState: self)
+            saveShowFloatingWindow(true)
+        }
     }
 
-    // Issue #4: Guard against race condition between permission callback and hotkey toggle
-    private var isStartingRecording: Bool = false
-
     private func startRecording() {
-        // Issue #4: Prevent double-start if already starting
         guard !isStartingRecording else { return }
-        isStartingRecording = true
 
-        errorMessage = ""
+        // Only block when the user already denied; .notDetermined still goes through
+        // requestAuthorization so macOS can show the system prompt.
+        if PermissionHelper.isMicrophoneDenied || PermissionHelper.isSpeechDenied {
+            presentOnboarding()
+            return
+        }
+
+        isStartingRecording = true
+        clearMessages()
         liveTranscript = ""
         rawTranscript = ""
         transcriptionProcessed = false
@@ -127,29 +244,30 @@ final class AppState: ObservableObject {
 
         status = .recording
 
-        speechRecognizer.requestAuthorization { [weak self] granted in
+        speechRecognizer.requestAuthorization { [weak self] result in
             guard let self = self else { return }
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 self.isStartingRecording = false
 
-                guard granted else {
-                    self.status = .error
-                    self.errorMessage = "Speech recognition permission denied. Grant it in System Settings → Privacy → Speech Recognition."
+                guard result.isGranted else {
+                    self.status = .idle
+                    self.presentOnboarding()
+                    if let message = result.errorMessage {
+                        self.setError(message)
+                    }
                     return
                 }
 
-                // Issue #4: Only proceed if we're still in recording state
-                // (user might have toggled while permission callback was pending)
                 guard self.status == .recording else { return }
 
                 self.speechRecognizer.onPartialResult = { text in
-                    DispatchQueue.main.async {
+                    Task { @MainActor in
                         self.liveTranscript = text
                     }
                 }
 
                 self.speechRecognizer.startRecognition { result in
-                    DispatchQueue.main.async {
+                    Task { @MainActor in
                         guard !self.transcriptionProcessed else { return }
                         guard self.status == .transcribing || self.status == .recording else { return }
 
@@ -158,14 +276,20 @@ final class AppState: ObservableObject {
                             self.transcriptionProcessed = true
                             self.rawTranscript = text
                             self.liveTranscript = ""
+                            if let fallback = self.speechRecognizer.onDeviceFallbackMessage {
+                                self.statusMessage = fallback
+                                self.scheduleStatusMessageAutoClear()
+                            }
                             self.processTranscript(text)
                         case .failure(let error):
-                            // Issue #10: cancel() now calls back with an error —
-                            // if we already reset via toggleRecording, ignore it
                             self.transcriptionProcessed = true
                             if self.status == .idle { return }
+                            if let speechError = error as? SpeechRecognizerError,
+                               case .cancelled = speechError {
+                                return
+                            }
                             self.status = .error
-                            self.errorMessage = "Recognition failed: \(error.localizedDescription)"
+                            self.setError("Recognition failed: \(error.localizedDescription)")
                         }
                     }
                 }
@@ -174,8 +298,6 @@ final class AppState: ObservableObject {
     }
 
     private func stopRecording() {
-        // Issue #4: If we're still waiting for permission (isStartingRecording),
-        // reset to idle instead of going to transcribing
         if isStartingRecording {
             isStartingRecording = false
             status = .idle
@@ -187,14 +309,14 @@ final class AppState: ObservableObject {
         liveTranscript = ""
         speechRecognizer.stopRecognition()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
-            guard let self = self else { return }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
             if self.status == .transcribing && !self.transcriptionProcessed {
                 self.logger.warning("Transcription timed out — resetting to idle")
                 self.transcriptionProcessed = true
                 self.speechRecognizer.cancel()
                 self.status = .idle
-                self.errorMessage = "No speech detected. Try again."
+                self.setStatusMessage("No speech detected")
                 self.liveTranscript = ""
             }
         }
@@ -205,97 +327,133 @@ final class AppState: ObservableObject {
 
         guard !trimmed.isEmpty else {
             status = .idle
-            errorMessage = "No speech detected. Try again."
+            setStatusMessage("No speech detected")
             liveTranscript = ""
-            return
-        }
-
-        guard enhanceEnabled, !apiKey.isEmpty else {
-            lastTranscript = trimmed
-            // Issue #6: saveToHistory is called in the completion handler
-            // after paste completes, not before
-            TextInserter.shared.insertOrCopy(trimmed) { [weak self] _ in
-                DispatchQueue.main.async {
-                    self?.saveToHistory(text: trimmed)
-                }
-            }
-            status = .idle
             hideFloatingWindow()
             return
         }
 
-        // Enhance text via Abacus LLM
+        guard enhanceEnabled, !apiKey.isEmpty else {
+            finishWithText(trimmed)
+            return
+        }
+
         status = .enhancing
         llmTimedOut = false
+        llmTimeoutTask?.cancel()
 
-        // Timeout: if LLM takes more than 12 seconds, use raw transcript
-        DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in
-            guard let self = self, self.status == .enhancing, !self.llmTimedOut else { return }
+        llmTimeoutTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(AbacusLLMService.requestTimeout * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            guard self.status == .enhancing, !self.llmTimedOut else { return }
             self.logger.warning("LLM enhancement timed out — using raw transcript")
             self.llmTimedOut = true
-            // Issue #5: Cancel the in-flight request
             self.llmService.cancel()
-            self.lastTranscript = trimmed
-            TextInserter.shared.insertOrCopy(trimmed) { [weak self] _ in
-                DispatchQueue.main.async {
-                    self?.saveToHistory(text: trimmed)
-                }
-            }
-            self.status = .idle
-            self.hideFloatingWindow()
-            self.errorMessage = "LLM cleanup timed out (used raw text)"
+            self.finishWithText(trimmed, errorNote: "LLM cleanup timed out (used raw text)")
         }
 
         llmService.enhanceText(text: trimmed, apiKey: apiKey, endpoint: llmEndpoint, model: llmModel) { result in
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 guard !self.llmTimedOut else { return }
+
+                self.llmTimeoutTask?.cancel()
 
                 switch result {
                 case .success(let enhanced):
-                    self.lastTranscript = enhanced
-                    // Issue #6: Save to history AFTER paste completes
-                    TextInserter.shared.insertOrCopy(enhanced) { [weak self] _ in
-                        DispatchQueue.main.async {
-                            self?.saveToHistory(text: enhanced)
-                        }
-                    }
-                    self.status = .idle
-                    self.hideFloatingWindow()
+                    self.finishWithText(enhanced)
                 case .failure(let error):
-                    // Issue #5: If cancelled by user, don't show error
                     if case AbacusLLMError.requestCancelled = error {
                         return
                     }
                     self.logger.warning("LLM enhancement failed: \(error.localizedDescription)")
-                    self.lastTranscript = trimmed
-                    TextInserter.shared.insertOrCopy(trimmed) { [weak self] _ in
-                        DispatchQueue.main.async {
-                            self?.saveToHistory(text: trimmed)
-                        }
-                    }
-                    self.status = .idle
-                    self.hideFloatingWindow()
-                    self.errorMessage = "LLM cleanup failed (using raw text): \(error.localizedDescription)"
+                    self.finishWithText(trimmed, errorNote: "LLM cleanup failed (using raw text): \(error.localizedDescription)")
                 }
             }
         }
     }
 
-    private func hideFloatingWindow() {
-        FloatingWindowController.shared.hideWindow()
+    private func finishWithText(_ text: String, errorNote: String? = nil) {
+        lastTranscript = text
+        errorMessage = ""
+        statusMessage = ""
+
+        TextInserter.shared.insertOrCopy(text) { [weak self] _ in
+            Task { @MainActor in
+                self?.saveToHistory(text: text)
+            }
+        }
+        status = .idle
+        hideFloatingWindow()
+
+        if let errorNote = errorNote {
+            setError(errorNote)
+        }
     }
 
-    // Issue #28: Deduplicate history entries
-    private func saveToHistory(text: String) {
-        // Don't save if identical to most recent entry
-        if let first = history.first, first.text == text {
-            return
+    private func hideFloatingWindow() {
+        if showFloatingWindow {
+            // Keep visible if user wants floating bar — only hide during processing end if they closed it
         }
+        // Don't auto-hide — user controls via preference
+    }
+
+    private func saveToHistory(text: String) {
+        guard saveHistoryEnabled else { return }
+        if let first = history.first, first.text == text { return }
         let entry = TranscriptEntry(text: text, timestamp: Date())
         history.insert(entry, at: 0)
         if history.count > 100 {
             history.removeLast()
         }
         TranscriptHistory.shared.saveHistory(history)
+    }
+
+    func deleteHistoryEntry(_ entry: TranscriptEntry) {
+        history.removeAll { $0.id == entry.id }
+        TranscriptHistory.shared.saveHistory(history)
+    }
+
+    func clearAllHistory() {
+        TranscriptHistory.shared.clearHistory()
+        history = []
+    }
+
+    // MARK: - Messages
+
+    private func clearMessages() {
+        errorMessage = ""
+        statusMessage = ""
+        errorClearTask?.cancel()
+    }
+
+    private func setError(_ message: String) {
+        errorMessage = message
+        scheduleErrorAutoClear()
+    }
+
+    private func setStatusMessage(_ message: String) {
+        statusMessage = message
+        scheduleStatusMessageAutoClear()
+    }
+
+    private func scheduleErrorAutoClear() {
+        errorClearTask?.cancel()
+        errorClearTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+            self.errorMessage = ""
+        }
+    }
+
+    private func scheduleStatusMessageAutoClear() {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            self.statusMessage = ""
+        }
+    }
+
+    private func syncTextInserterPreferences() {
+        TextInserter.shared.clipboardOnlyMode = clipboardOnlyMode
+        TextInserter.shared.restoreClipboardEnabled = restoreClipboard
     }
 }

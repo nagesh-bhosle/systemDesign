@@ -2,15 +2,12 @@
 //  AbacusLLMService.swift
 //  VoiceDictation
 //
-//  Sends transcribed text to Abacus AI (routellm.abacus.ai) for cleanup.
-//  Removes filler words, fixes grammar, and improves readability.
-//  Uses the OpenAI-compatible /v1/chat/completions endpoint.
+//  Sends transcribed text to Abacus AI for cleanup.
 //
 
 import Foundation
 import os
 
-// Issue #37: Proper error types
 enum AbacusLLMError: LocalizedError {
     case invalidEndpointURL
     case noResponseData
@@ -34,38 +31,63 @@ enum AbacusLLMError: LocalizedError {
     }
 }
 
+// MARK: - Codable response types
+
+private struct ChatCompletionResponse: Decodable {
+    struct Choice: Decodable {
+        struct Message: Decodable {
+            let content: String?
+        }
+        let message: Message?
+    }
+    let choices: [Choice]?
+}
+
+private struct APIErrorResponse: Decodable {
+    struct ErrorDetail: Decodable {
+        let message: String?
+    }
+    let error: ErrorDetail?
+}
+
+private struct ModelsListResponse: Decodable {
+    struct Model: Decodable {
+        let id: String?
+    }
+    let data: [Model]?
+}
+
 final class AbacusLLMService {
     private let logger = Logger(subsystem: "com.nagesh.voicedictation", category: "AbacusLLM")
 
-    // Issue #51: Dedicated URLSession with configurable timeout
     private let session: URLSession
+    private let taskQueue = DispatchQueue(label: "com.nagesh.voicedictation.llm-task")
+    private var currentDataTask: URLSessionDataTask?
+
+    static let defaultModel = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+    static let requestTimeout: TimeInterval = 15
 
     init() {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForRequest = Self.requestTimeout
         config.timeoutIntervalForResource = 30
         config.waitsForConnectivity = true
         self.session = URLSession(configuration: config)
     }
 
-    // Issue #5: Store the data task so it can be cancelled
-    private var currentDataTask: URLSessionDataTask?
-
-    // Issue #23: Model list is defined in SettingsView.swift as AVAILABLE_MODELS.
     func enhanceText(
         text: String,
         apiKey: String,
         endpoint: String = "https://routellm.abacus.ai/v1/chat/completions",
-        model: String = "gemini-3.5-flash-lite",
+        model: String = AbacusLLMService.defaultModel,
         completion: @escaping (Result<String, Error>) -> Void
     ) {
-        // Issue #26: No force-unwraps
         guard let url = URL(string: endpoint) else {
             completion(.failure(AbacusLLMError.invalidEndpointURL))
             return
         }
 
-        var request = URLRequest(url: url, timeoutInterval: 15)
+        var request = URLRequest(url: url, timeoutInterval: Self.requestTimeout)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -84,7 +106,7 @@ final class AbacusLLMService {
                 ["role": "user", "content": text]
             ],
             "temperature": 0.3,
-            "max_tokens": 4096
+            "max_tokens": 1024
         ]
 
         do {
@@ -94,14 +116,57 @@ final class AbacusLLMService {
             return
         }
 
-        // Issue #50: Retry logic with single retry on transient failure
         performRequest(request: request, isRetry: false, completion: completion)
     }
 
-    /// Issue #5: Cancel any in-flight request
     func cancel() {
-        currentDataTask?.cancel()
-        currentDataTask = nil
+        taskQueue.sync {
+            currentDataTask?.cancel()
+            currentDataTask = nil
+        }
+    }
+
+    func testAPIKey(
+        apiKey: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        guard let url = URL(string: "https://routellm.abacus.ai/v1/models") else {
+            completion(.failure(AbacusLLMError.invalidEndpointURL))
+            return
+        }
+
+        var request = URLRequest(url: url, timeoutInterval: Self.requestTimeout)
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+        let task = session.dataTask(with: request) { data, response, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+
+            guard let data = data else {
+                completion(.failure(AbacusLLMError.noResponseData))
+                return
+            }
+
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode >= 400 {
+                if let errorResponse = try? JSONDecoder().decode(APIErrorResponse.self, from: data),
+                   let message = errorResponse.error?.message {
+                    completion(.failure(AbacusLLMError.apiError(message)))
+                } else {
+                    completion(.failure(AbacusLLMError.apiError("HTTP \(httpResponse.statusCode)")))
+                }
+                return
+            }
+
+            if let modelsResponse = try? JSONDecoder().decode(ModelsListResponse.self, from: data),
+               modelsResponse.data != nil {
+                completion(.success(()))
+            } else {
+                completion(.failure(AbacusLLMError.unexpectedResponse("Could not parse models response")))
+            }
+        }
+        task.resume()
     }
 
     // MARK: - Private
@@ -112,7 +177,6 @@ final class AbacusLLMService {
         completion: @escaping (Result<String, Error>) -> Void
     ) {
         let task = session.dataTask(with: request) { [weak self] data, response, error in
-            // Issue #5: Check if request was cancelled
             if let error = error as? URLError, error.code == .cancelled {
                 completion(.failure(AbacusLLMError.requestCancelled))
                 return
@@ -120,7 +184,6 @@ final class AbacusLLMService {
 
             if let error = error {
                 self?.logger.warning("LLM request failed: \(error.localizedDescription)")
-                // Issue #50: Retry once on transient network errors
                 if !isRetry, self?.isTransientError(error) == true {
                     self?.logger.info("Retrying LLM request after transient error...")
                     DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) {
@@ -137,43 +200,38 @@ final class AbacusLLMService {
                 return
             }
 
-            // Check for HTTP error status
             if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode >= 400 {
-                let responseText = String(data: data, encoding: .utf8) ?? ""
-                if let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let error = errorJson["error"] as? [String: Any],
-                   let message = error["message"] as? String {
+                if let errorResponse = try? JSONDecoder().decode(APIErrorResponse.self, from: data),
+                   let message = errorResponse.error?.message {
                     completion(.failure(AbacusLLMError.apiError(message)))
                 } else {
+                    let responseText = String(data: data, encoding: .utf8) ?? ""
                     completion(.failure(AbacusLLMError.apiError("HTTP \(httpResponse.statusCode): \(responseText.prefix(200))")))
                 }
                 return
             }
 
-            // Parse success response
             do {
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let choices = json["choices"] as? [[String: Any]],
-                   let firstChoice = choices.first,
-                   let message = firstChoice["message"] as? [String: Any],
-                   let content = message["content"] as? String {
+                let decoded = try JSONDecoder().decode(ChatCompletionResponse.self, from: data)
+                if let content = decoded.choices?.first?.message?.content {
                     let cleaned = content.trimmingCharacters(in: .whitespacesAndNewlines)
                     completion(.success(cleaned))
+                } else if let errorResponse = try? JSONDecoder().decode(APIErrorResponse.self, from: data),
+                          let message = errorResponse.error?.message {
+                    completion(.failure(AbacusLLMError.apiError(message)))
                 } else {
                     let responseText = String(data: data, encoding: .utf8) ?? ""
-                    if let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let error = errorJson["error"] as? [String: Any],
-                       let message = error["message"] as? String {
-                        completion(.failure(AbacusLLMError.apiError(message)))
-                    } else {
-                        completion(.failure(AbacusLLMError.unexpectedResponse(String(responseText.prefix(200)))))
-                    }
+                    completion(.failure(AbacusLLMError.unexpectedResponse(String(responseText.prefix(200)))))
                 }
             } catch {
                 completion(.failure(error))
             }
         }
-        currentDataTask = task
+
+        taskQueue.sync {
+            currentDataTask?.cancel()
+            currentDataTask = task
+        }
         task.resume()
     }
 
@@ -183,44 +241,5 @@ final class AbacusLLMService {
                urlError.code == .networkConnectionLost ||
                urlError.code == .notConnectedToInternet ||
                urlError.code == .dnsLookupFailed
-    }
-
-    /// Test if the API key is valid by listing models
-    func testAPIKey(
-        apiKey: String,
-        completion: @escaping (Result<[String], Error>) -> Void
-    ) {
-        // Issue #26: No force-unwraps
-        guard let url = URL(string: "https://routellm.abacus.ai/v1/models") else {
-            completion(.failure(AbacusLLMError.invalidEndpointURL))
-            return
-        }
-
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-
-        session.dataTask(with: request) { data, _, error in
-            if let error = error {
-                completion(.failure(error))
-                return
-            }
-
-            guard let data = data else {
-                completion(.failure(AbacusLLMError.noResponseData))
-                return
-            }
-
-            do {
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let models = json["data"] as? [[String: Any]] {
-                    let modelIds = models.compactMap { $0["id"] as? String }
-                    completion(.success(modelIds))
-                } else {
-                    completion(.failure(AbacusLLMError.unexpectedResponse("Could not parse models")))
-                }
-            } catch {
-                completion(.failure(error))
-            }
-        }.resume()
     }
 }

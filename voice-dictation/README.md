@@ -2,6 +2,8 @@
 
 A WisprFlow-inspired macOS menu bar app that lets you speak and inserts the transcribed text wherever your cursor is.
 
+**Version 0.2.0**
+
 ## One-Click Run
 
 ```bash
@@ -9,99 +11,69 @@ cd systemDesign/voice-dictation
 ./run.sh
 ```
 
-That's it. The script builds the app and launches it. A 🎤 icon appears in your menu bar.
+The script builds the app and launches it. A mic icon appears in your menu bar.
 
-Then press **⌥⇧Space** (Option+Shift+Space) anywhere to start recording. Press again to stop — your speech is transcribed on-device and pasted at your cursor (or copied to clipboard).
+Press **Option+Shift+Space** anywhere to start recording. Press again to stop — your speech is transcribed and pasted at your cursor (or copied to clipboard).
 
-**Optional:** Click the 🎤 icon → **Settings** → paste your Abacus AI API key to enable LLM text cleanup (removes filler words, fixes grammar). Without a key, raw speech-to-text is used.
+On first launch, an onboarding window guides you through Microphone, Speech Recognition, and Accessibility permissions.
+
+**Optional:** Click the mic icon → **Settings** → paste your Abacus AI API key to enable LLM text cleanup.
 
 ## How It Works
 
 ```
-[⌥⇧Space] → Start Recording → [Speak] → [⌥⇧Space] → Stop
-    → On-Device Speech Recognition (SFSpeechRecognizer)
-    → [Optional] Abacus AI LLM Cleanup (filler removal, grammar fix)
+[Option+Shift+Space] → Start Recording → [Speak] → [Option+Shift+Space] → Stop
+    → On-Device Speech Recognition (SFSpeechRecognizer, on-device by default)
+    → [Optional] Abacus AI LLM Cleanup (text only — audio stays on your Mac)
     → Paste at Cursor (Accessibility API + Cmd+V) — or Copy to Clipboard
 ```
+
+## Privacy
+
+- **Audio** is processed on your Mac. On-device speech recognition is enabled by default (`requiresOnDeviceRecognition`). If on-device is unavailable, the app falls back to Apple's server-based recognition.
+- **Optional LLM cleanup** sends transcribed **text** (not audio) to Abacus AI when enabled.
+- **History** is saved locally in Application Support — never leaves your Mac. You can disable history saving in Settings.
 
 ## Prerequisites
 
 - macOS 14.0+ (Sonoma)
 - Swift command line tools (`xcode-select --install`)
-- Optional: Abacus AI API key (for LLM text cleanup — works without it)
+- Optional: Abacus AI API key (for LLM text cleanup)
 
-## Features
+## Features (v0.2)
 
-### MVP (Current)
-- ✅ Global hotkey (⌥⇧Space) to toggle recording
-- ✅ On-device speech recognition via Apple SFSpeechRecognizer (no API key needed)
-- ✅ Optional LLM text cleanup via Abacus AI (remove filler words, fix grammar)
-- ✅ Auto-paste at cursor position (Accessibility API + Cmd+V simulation)
-- ✅ Clipboard save/restore — previous clipboard contents are preserved after paste
-- ✅ Clipboard fallback with notification
-- ✅ Menu bar app with status indicator
-- ✅ Floating window with live transcript preview
-- ✅ Secure API key storage in macOS Keychain (with explicit accessibility attribute)
-- ✅ Last transcript preview in menu bar
-- ✅ Searchable transcript history (file-based persistence in Application Support)
-- ✅ Accessibility labels on all UI elements
-- ✅ Error checking on Keychain and hotkey registration
-- ✅ LLM request cancellation when user interrupts enhancement
-- ✅ Retry logic for transient LLM network errors
-- ✅ Thread-safe speech recognizer with serial queue synchronization
-- ✅ os.Logger for leveled logging throughout
+- Global hotkey (Option+Shift+Space) with Apple-style keycaps in Settings
+- On-device speech recognition with language picker (en-US, en-GB, de-DE, es-ES, fr-FR, hi-IN)
+- First-run onboarding for permissions
+- Optional LLM text cleanup via Abacus AI
+- Auto-paste at cursor with clipboard save/restore (HTML, images supported)
+- Clipboard-only mode and restore-clipboard toggle
+- Menu bar app with premium UI (warm amber accent, SF Symbols only)
+- Floating capsule bar with idle orb / expanded active state
+- Searchable transcript history with relative timestamps
+- Launch at login (macOS 13+, requires signed build)
+- API key verify with connected/failed indicator
+- Settings tabs: General / Enhancement / Privacy / About
 
-### Phase 2 (Future)
-- Spelling correction
-- Auto punctuation
-- Rewording via LLM
-- Tone/style per app
-- Custom vocabulary
-- Multi-language support
+## Build
 
-### Phase 3 (Future)
-- On-device Whisper (whisper.cpp) for offline privacy mode
-- App-specific formatting
-- Voice commands
-- Auto-update via Sparkle
+```bash
+./run.sh build          # Build only
+./run.sh clean          # Clean rebuild and launch
 
-## Architecture
-
-| File | Responsibility |
-|------|---------------|
-| `VoiceDictationApp.swift` | App entry, menu bar setup |
-| `AppState.swift` | Central state, orchestrates recording → transcription → enhancement → insertion |
-| `AppDelegate.swift` | App lifecycle, hotkey registration with error reporting |
-| `HotkeyManager.swift` | Global hotkey via Carbon framework (with error checking) |
-| `SpeechRecognizerService.swift` | On-device speech recognition via SFSpeechRecognizer (thread-safe) |
-| `AbacusLLMService.swift` | Optional LLM text cleanup via Abacus AI API (with retry + cancellation) |
-| `TextInserter.swift` | Text insertion at cursor (clipboard save/restore + Cmd+V) |
-| `FloatingWindowController.swift` | Manages floating window lifecycle (with position persistence) |
-| `FloatingWindowView.swift` | Floating bar UI with live transcript |
-| `MenuBarView.swift` | Menu bar dropdown UI |
-| `SettingsView.swift` | API key settings, LLM model/endpoint config, hotkey info |
-| `HistoryView.swift` | Searchable transcript history |
-| `TranscriptHistory.swift` | Local persistence (file-based in Application Support) |
-| `KeychainHelper.swift` | Secure API key storage (with error checking) |
+# Optional codesign (does not fail build if unset):
+CODESIGN_IDENTITY="-" ./run.sh build
+```
 
 ## Permissions
 
 | Permission | Why |
 |-----------|-----|
 | Microphone | Record your speech |
-| Speech Recognition | On-device transcription via SFSpeechRecognizer |
-| Accessibility | Simulate Cmd+V to paste at cursor |
+| Speech Recognition | Transcribe speech on your Mac |
+| Accessibility | Simulate Cmd+V to paste at cursor (optional — clipboard fallback) |
 | Notifications | Notify when text is copied to clipboard |
 
-## Tech Stack
-- **Swift** + **SwiftUI** (native macOS)
-- **Speech** — on-device speech recognition (SFSpeechRecognizer)
-- **AVFoundation** — audio recording
-- **Carbon** — global hotkey registration
-- **ApplicationServices** — accessibility for text insertion
-- **Security** — Keychain for API key (with `kSecAttrAccessibleWhenUnlocked`)
-- **Abacus AI** — optional LLM text cleanup (OpenAI-compatible API)
-- **os.Logger** — leveled logging throughout
-
 ## License
+
 MIT

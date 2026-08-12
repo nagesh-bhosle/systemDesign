@@ -2,7 +2,7 @@
 //  HistoryView.swift
 //  VoiceDictation
 //
-//  Searchable transcript history accessible from menu bar.
+//  Searchable transcript history.
 //
 
 import SwiftUI
@@ -11,6 +11,8 @@ struct HistoryView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) private var dismiss
     @State private var searchText: String = ""
+    @State private var showClearConfirmation = false
+    @State private var copiedEntryID: UUID?
 
     var filteredHistory: [TranscriptEntry] {
         if searchText.isEmpty {
@@ -23,24 +25,9 @@ struct HistoryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header with Done button
-            HStack {
-                Text("History")
-                    .font(.headline)
-                Spacer()
-                Button("Done") {
-                    dismiss()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .accessibilityLabel("Close history")
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-
+            header
             Divider()
 
-            // Search bar
             HStack {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(.secondary)
@@ -48,82 +35,140 @@ struct HistoryView: View {
                     .textFieldStyle(.roundedBorder)
                     .accessibilityLabel("Search transcripts")
             }
-            .padding(8)
+            .padding(12)
 
-            // History list
             if filteredHistory.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "doc.text.magnifyingglass")
-                        .font(.system(size: 32))
-                        .foregroundColor(.secondary)
-                    Text(searchText.isEmpty ? "No transcripts yet" : "No results found")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                emptyState
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 0) {
+                    LazyVStack(spacing: 8) {
                         ForEach(filteredHistory) { entry in
-                            HistoryRow(entry: entry) {
-                                copyToClipboard(entry.text)
-                            }
-                            Divider()
+                            HistoryRow(
+                                entry: entry,
+                                isCopied: copiedEntryID == entry.id,
+                                onCopy: { copyEntry(entry) },
+                                onDelete: { appState.deleteHistoryEntry(entry) }
+                            )
                         }
                     }
+                    .padding(.horizontal, 12)
                 }
             }
 
-            // Footer
             Divider()
-            HStack {
-                Text("\(appState.history.count) total")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Spacer()
-                Button("Clear All") {
-                    TranscriptHistory.shared.clearHistory()
-                    appState.history = []
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .accessibilityLabel("Clear all history")
-            }
-            .padding(8)
+            footer
         }
-        .frame(width: 360, height: 400)
+        .frame(width: 380, height: 440)
+        .alert("Clear All History?", isPresented: $showClearConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Clear All", role: .destructive) {
+                appState.clearAllHistory()
+            }
+        } message: {
+            Text("This will permanently delete all \(appState.history.count) transcript entries.")
+        }
     }
 
-    private func copyToClipboard(_ text: String) {
+    private var header: some View {
+        HStack {
+            Text("History")
+                .font(.headline)
+            Spacer()
+            Button("Done") { dismiss() }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityLabel("Close history")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "waveform")
+                .font(.system(size: 48))
+                .foregroundColor(.secondary.opacity(0.5))
+            Text(searchText.isEmpty ? "No transcripts yet" : "No results found")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            Text("Your dictations will appear here")
+                .font(.caption)
+                .foregroundColor(.secondary.opacity(0.7))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var footer: some View {
+        HStack {
+            Text("\(appState.history.count) total")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Spacer()
+            Button("Clear All") {
+                showClearConfirmation = true
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(appState.history.isEmpty)
+            .accessibilityLabel("Clear all history")
+        }
+        .padding(8)
+    }
+
+    private func copyEntry(_ entry: TranscriptEntry) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        NSPasteboard.general.setString(entry.text, forType: .string)
+        copiedEntryID = entry.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            if copiedEntryID == entry.id {
+                copiedEntryID = nil
+            }
+        }
     }
 }
 
 struct HistoryRow: View {
     let entry: TranscriptEntry
+    let isCopied: Bool
     let onCopy: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(entry.formattedTime)
+                Text(entry.relativeTime)
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Spacer()
                 Button(action: onCopy) {
-                    Image(systemName: "doc.on.doc")
+                    Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
                         .font(.caption)
+                        .foregroundColor(isCopied ? .green : .secondary)
                 }
-                .buttonStyle(.borderless)
-                .help("Copy to clipboard")
-                .accessibilityLabel("Copy transcript from \(entry.formattedTime)")
+                .buttonStyle(.plain)
+                .accessibilityLabel("Copy transcript")
+
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Delete transcript")
             }
             Text(entry.text)
                 .font(.body)
                 .lineLimit(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(8)
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(AppTheme.cardBackground)
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(AppTheme.hairlineBorder, lineWidth: 1))
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { onCopy() }
+        .accessibilityLabel("Transcript from \(entry.relativeTime)")
     }
 }
