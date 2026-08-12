@@ -71,11 +71,23 @@ printf 'APPL????' > "$CONTENTS_DIR/PkgInfo"
 
 echo -e "${GREEN}App bundle: $APP_DIR${NC}"
 
+# Sign with a stable identity so Accessibility survives rebuilds.
+# Unsigned / ad-hoc binaries look like a new app to macOS after every compile.
+if [ -z "$CODESIGN_IDENTITY" ]; then
+    CODESIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
+        | grep -E 'Apple Development|Developer ID Application|Mac Developer' \
+        | head -1 \
+        | sed -E 's/.*"([^"]+)".*/\1/')
+fi
+
 if [ -n "$CODESIGN_IDENTITY" ]; then
-    echo -e "${YELLOW}Codesigning with identity: $CODESIGN_IDENTITY${NC}"
-    codesign --force --sign "$CODESIGN_IDENTITY" --timestamp=none "$APP_DIR" || {
+    echo -e "${YELLOW}Codesigning with: $CODESIGN_IDENTITY${NC}"
+    codesign --force --sign "$CODESIGN_IDENTITY" --identifier com.nagesh.voicedictation --timestamp=none "$APP_DIR" || {
         echo -e "${YELLOW}Codesign failed (non-fatal)${NC}"
     }
+else
+    echo -e "${YELLOW}No Apple codesign identity found. Accessibility may reset after each rebuild.${NC}"
+    echo -e "${YELLOW}If auto-paste fails: System Settings → Accessibility → uncheck Voice Dictation, then check it again.${NC}"
 fi
 
 if [ "$1" != "build" ]; then

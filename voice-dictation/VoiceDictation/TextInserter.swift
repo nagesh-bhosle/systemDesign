@@ -11,6 +11,12 @@ import ApplicationServices
 import UserNotifications
 import os
 
+enum InsertResult {
+    case pasted
+    case clipboardOnly
+    case needsAccessibilityRefresh
+}
+
 final class TextInserter {
     static let shared = TextInserter()
 
@@ -39,29 +45,31 @@ final class TextInserter {
 
     // MARK: - Public
 
-    func insertOrCopy(_ text: String, completion: ((Bool) -> Void)? = nil) {
+    func insertOrCopy(_ text: String, completion: ((InsertResult) -> Void)? = nil) {
         let previousClipboard = saveClipboardContents()
         copyToClipboardSync(text)
 
         if clipboardOnlyMode {
             logger.info("Clipboard-only mode — text on clipboard (\(text.count) chars)")
             showNotification(text)
-            completion?(false)
+            completion?(.clipboardOnly)
             return
         }
 
+        // Do not call AXIsProcessTrustedWithOptions(prompt). After a rebuild, System
+        // Settings can still show Voice Dictation as enabled while this binary is
+        // not trusted — Apple's dialog looks like permission is missing.
         guard AXIsProcessTrusted() else {
-            promptAccessibility()
-            logger.warning("No accessibility permission — text on clipboard (\(text.count) chars)")
-            showNotification(text)
-            completion?(false)
+            logger.warning("This build is not Accessibility-trusted — text on clipboard")
+            showAccessibilityRefreshNotification(text)
+            completion?(.needsAccessibilityRefresh)
             return
         }
 
         guard let target = resolvedInsertionTarget() else {
             logger.warning("No target app for paste — text on clipboard")
             showNotification(text)
-            completion?(false)
+            completion?(.clipboardOnly)
             return
         }
 
@@ -75,7 +83,7 @@ final class TextInserter {
         let pid = target.processIdentifier
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             guard let self else {
-                completion?(false)
+                completion?(.clipboardOnly)
                 return
             }
 
@@ -87,11 +95,11 @@ final class TextInserter {
                         self.restoreClipboardContents(previousClipboard)
                     }
                 }
-                completion?(true)
+                completion?(.pasted)
             } else {
                 self.logger.warning("Paste simulation failed — text on clipboard (\(text.count) chars)")
                 self.showNotification(text)
-                completion?(false)
+                completion?(.clipboardOnly)
             }
         }
     }
@@ -182,15 +190,6 @@ final class TextInserter {
         }
     }
 
-    // MARK: - Accessibility Permission
-
-    private func promptAccessibility() {
-        let options: NSDictionary = [
-            kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true
-        ]
-        _ = AXIsProcessTrustedWithOptions(options as CFDictionary)
-    }
-
     // MARK: - Simulate Paste (Cmd+V)
 
     /// Posts Cmd+V into the target process. `privateState` events are not delivered
@@ -229,11 +228,25 @@ final class TextInserter {
     }
 
     private func showNotification(_ text: String) {
+        postNotification(
+            title: "Voice Dictation",
+            body: "Text copied to clipboard. Press Cmd+V to paste.\n\"\(String(text.prefix(100)))\""
+        )
+    }
+
+    private func showAccessibilityRefreshNotification(_ text: String) {
+        postNotification(
+            title: "Toggle Accessibility for this build",
+            body: "System Settings still lists Voice Dictation, but this rebuild is a new app. Uncheck it, check it again, then Cmd+V to paste.\n\"\(String(text.prefix(80)))\""
+        )
+    }
+
+    private func postNotification(title: String, body: String) {
         DispatchQueue.main.async {
             let center = UNUserNotificationCenter.current()
             let content = UNMutableNotificationContent()
-            content.title = "Voice Dictation"
-            content.body = "Text copied to clipboard. Press Cmd+V to paste.\n\"\(String(text.prefix(100)))\""
+            content.title = title
+            content.body = body
             let request = UNNotificationRequest(
                 identifier: "dictation-\(UUID().uuidString)",
                 content: content,

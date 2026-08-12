@@ -388,9 +388,12 @@ final class AppState: ObservableObject {
         errorMessage = ""
         statusMessage = ""
 
-        TextInserter.shared.insertOrCopy(text) { [weak self] _ in
+        TextInserter.shared.insertOrCopy(text) { [weak self] result in
             Task { @MainActor in
                 self?.saveToHistory(text: text)
+                if result == .needsAccessibilityRefresh {
+                    self?.setError("Auto-paste needs a refresh: System Settings → Privacy & Security → Accessibility → uncheck Voice Dictation, then check it again. Text is on the clipboard.")
+                }
             }
         }
         status = .idle
