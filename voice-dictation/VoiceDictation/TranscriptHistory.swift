@@ -3,10 +3,11 @@
 //  VoiceDictation
 //
 //  Local persistence of past dictations.
-//  Stores up to 100 entries in UserDefaults as JSON.
+//  Stores up to 100 entries as JSON in Application Support (not UserDefaults).
 //
 
 import Foundation
+import os
 
 struct TranscriptEntry: Identifiable, Codable, Equatable {
     let id: UUID
@@ -19,7 +20,6 @@ struct TranscriptEntry: Identifiable, Codable, Equatable {
         self.timestamp = timestamp
     }
 
-    // Issue #26: Use a static formatter instead of creating one per access
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .short
@@ -34,32 +34,50 @@ struct TranscriptEntry: Identifiable, Codable, Equatable {
 
 final class TranscriptHistory {
     static let shared = TranscriptHistory()
-    private let key = "voiceDictation.history"
 
-    private init() {}
+    private let logger = Logger(subsystem: "com.nagesh.voicedictation", category: "TranscriptHistory")
+
+    // Issue #27: Static encoder/decoder instances
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
+
+    // Issue #18: Use file-based storage in Application Support instead of UserDefaults
+    private let fileURL: URL
+
+    private init() {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let appDir = appSupport.appendingPathComponent("VoiceDictation", isDirectory: true)
+
+        // Create directory if needed
+        try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
+
+        self.fileURL = appDir.appendingPathComponent("history.json")
+    }
 
     func loadHistory() -> [TranscriptEntry] {
-        guard let data = UserDefaults.standard.data(forKey: key) else {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
             return []
         }
         do {
-            return try JSONDecoder().decode([TranscriptEntry].self, from: data)
+            let data = try Data(contentsOf: fileURL)
+            return try decoder.decode([TranscriptEntry].self, from: data)
         } catch {
-            print("⚠️ Failed to load history: \(error)")
+            logger.warning("Failed to load history: \(error.localizedDescription)")
             return []
         }
     }
 
     func saveHistory(_ entries: [TranscriptEntry]) {
         do {
-            let data = try JSONEncoder().encode(entries)
-            UserDefaults.standard.set(data, forKey: key)
+            let data = try encoder.encode(entries)
+            try data.write(to: fileURL, options: .atomic)
         } catch {
-            print("⚠️ Failed to save history: \(error)")
+            logger.warning("Failed to save history: \(error.localizedDescription)")
         }
     }
 
     func clearHistory() {
-        UserDefaults.standard.removeObject(forKey: key)
+        try? FileManager.default.removeItem(at: fileURL)
     }
 }

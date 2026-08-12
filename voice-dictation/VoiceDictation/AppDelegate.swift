@@ -7,15 +7,25 @@
 
 import Cocoa
 import Carbon.HIToolbox
+import os
 
 class AppDelegate: NSObject, NSApplicationDelegate {
+    private let logger = Logger(subsystem: "com.nagesh.voicedictation", category: "AppDelegate")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        HotkeyManager.shared.registerHotkey()
-
-        // Issue #7: Don't show floating window on launch — it should only
-        // appear when recording starts. The user can toggle it from the
-        // menu bar if they want it visible.
+        // Issue #13: Check registration result and log if it fails
+        if !HotkeyManager.shared.registerHotkey() {
+            logger.error("Failed to register global hotkey — possible conflict with another app")
+            // Show alert to user
+            DispatchQueue.main.async {
+                let alert = NSAlert()
+                alert.messageText = "Hotkey Registration Failed"
+                alert.informativeText = "Voice Dictation could not register ⌥⇧Space. Another app may be using this shortcut. Try quitting conflicting apps and restarting Voice Dictation."
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

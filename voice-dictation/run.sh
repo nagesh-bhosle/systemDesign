@@ -5,6 +5,7 @@
 # Usage:
 #   ./run.sh          # Build and launch the app
 #   ./run.sh build    # Build only (don't launch)
+#   ./run.sh clean    # Full clean build, then launch
 #
 
 set -e
@@ -28,21 +29,24 @@ NC='\033[0m' # No Color
 echo -e "${GREEN}🎙️  Voice Dictation — Build & Run${NC}"
 echo ""
 
-# ── Check for Xcode Command Line Tools (issue #33) ──────
+# ── Check for Xcode Command Line Tools ──────────────────
 if ! xcrun --show-sdk-path > /dev/null 2>&1; then
     echo -e "${RED}❌ Xcode Command Line Tools not found.${NC}"
     echo -e "${YELLOW}   Run: xcode-select --install${NC}"
     exit 1
 fi
 
-# ── Clean previous build ─────────────────────────────────
-rm -rf "$BUILD_DIR"
+# Issue #32: Only do a full clean build when explicitly requested
+if [ "$1" = "clean" ]; then
+    echo -e "${YELLOW}🧹 Full clean build...${NC}"
+    rm -rf "$BUILD_DIR"
+fi
+
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
 # ── Build ─────────────────────────────────────────────────
 echo -e "${YELLOW}🔨 Building...${NC}"
 
-# Issue #6: Auto-detect architecture instead of hardcoding arm64
 ARCH=$(uname -m)
 
 # Direct swiftc compilation (SPM is broken with Command Line Tools only)
@@ -68,15 +72,17 @@ fi
 
 # ── Assemble .app bundle ──────────────────────────────────
 cp VoiceDictation/Info.plist "$CONTENTS_DIR/Info.plist"
-echo "APPL????" > "$CONTENTS_DIR/PkgInfo"
+# Issue #48: Use printf instead of echo to avoid trailing newline
+printf 'APPL????' > "$CONTENTS_DIR/PkgInfo"
 
 echo -e "${GREEN}📦 App bundle: $APP_DIR${NC}"
 
-# ── Launch (unless --build-only) ──────────────────────────
+# ── Launch (unless build-only) ──────────────────────────
 if [ "$1" != "build" ]; then
     echo -e "${GREEN}🚀 Launching...${NC}"
     echo ""
-    echo "  📋 First time? Click the 🎤 icon in the menu bar → Settings → paste your OpenAI API key"
+    # Issue #17: Updated message — Abacus AI, not OpenAI
+    echo "  📋 Optional: Click the 🎤 icon in the menu bar → Settings → paste your Abacus AI API key"
     echo "  ⌨️  Press ⌥⇧Space anywhere to start/stop recording"
     echo ""
     open "$APP_DIR"

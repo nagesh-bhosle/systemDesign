@@ -13,6 +13,8 @@ struct FloatingWindowView: View {
     @EnvironmentObject var appState: AppState
     @State private var isHovered: Bool = false
     @State private var showCopiedAnimation: Bool = false
+    // Issue #23: Track whether animation should be running
+    @State private var isAnimatingWaveform: Bool = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -23,12 +25,12 @@ struct FloatingWindowView: View {
                         RoundedRectangle(cornerRadius: 2)
                             .fill(Color.red)
                             .frame(width: 2.5, height: 12)
-                            .scaleEffect(y: appState.status == .recording ? 1.0 : 0.3)
+                            .scaleEffect(y: isAnimatingWaveform ? 1.0 : 0.3)
                             .animation(
                                 .easeInOut(duration: 0.35)
                                     .repeatForever(autoreverses: true)
                                     .delay(Double(i) * 0.12),
-                                value: appState.status == .recording
+                                value: isAnimatingWaveform
                             )
                     }
                 }
@@ -67,64 +69,66 @@ struct FloatingWindowView: View {
                     Button(action: {
                         appState.toggleRecording()
                     }) {
-                    Image(systemName: appState.status == .recording ? "stop.fill" : "mic.fill")
-                        .font(.system(size: 12))
-                        .foregroundColor(appState.status == .recording ? .red : .accentColor)
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.borderless)
-                .help(appState.status == .recording ? "Stop & Transcribe" : "Start Recording")
-                .disabled(appState.status == .transcribing || appState.status == .enhancing)
+                        Image(systemName: appState.status == .recording ? "stop.fill" : "mic.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(appState.status == .recording ? .red : .accentColor)
+                            .frame(width: 24, height: 24)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(appState.status == .recording ? "Stop & Transcribe" : "Start Recording")
+                    .disabled(appState.status == .transcribing || appState.status == .enhancing)
+                    // Issue #39: Accessibility labels
+                    .accessibilityLabel(appState.status == .recording ? "Stop recording" : "Start recording")
 
-                // Copy button with animation
-                Button(action: {
-                    copyToClipboard(appState.lastTranscript)
-                    triggerCopiedAnimation()
-                }) {
-                    Image(systemName: showCopiedAnimation ? "checkmark.circle.fill" : "doc.on.doc")
-                        .font(.system(size: 12))
-                        .foregroundColor(showCopiedAnimation ? .green : .primary)
-                        .frame(width: 24, height: 24)
-                        .scaleEffect(showCopiedAnimation ? 1.3 : 1.0)
-                        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: showCopiedAnimation)
-                }
-                .buttonStyle(.borderless)
-                .help("Copy last transcript")
-                .disabled(appState.lastTranscript.isEmpty)
+                    // Copy button with animation
+                    Button(action: {
+                        copyToClipboard(appState.lastTranscript)
+                        triggerCopiedAnimation()
+                    }) {
+                        Image(systemName: showCopiedAnimation ? "checkmark.circle.fill" : "doc.on.doc")
+                            .font(.system(size: 12))
+                            .foregroundColor(showCopiedAnimation ? .green : .primary)
+                            .frame(width: 24, height: 24)
+                            .scaleEffect(showCopiedAnimation ? 1.3 : 1.0)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: showCopiedAnimation)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Copy last transcript")
+                    .disabled(appState.lastTranscript.isEmpty)
+                    .accessibilityLabel("Copy last transcript")
 
-                // Create Note button
-                Button(action: {
-                    createNote()
-                }) {
-                    Image(systemName: "note.text")
-                        .font(.system(size: 12))
-                        .foregroundColor(.primary)
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.borderless)
-                .help("Create Note in Apple Notes")
-                .disabled(appState.lastTranscript.isEmpty)
+                    // Create Note button
+                    Button(action: {
+                        openNotesWithText()
+                    }) {
+                        Image(systemName: "note.text")
+                            .font(.system(size: 12))
+                            .foregroundColor(.primary)
+                            .frame(width: 24, height: 24)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Open in Notes (text copied to clipboard)")
+                    .disabled(appState.lastTranscript.isEmpty)
+                    .accessibilityLabel("Open in Notes")
 
-                // Close button
-                Button(action: {
-                    FloatingWindowController.shared.hideWindow()
-                }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
-                        .frame(width: 24, height: 24)
-                }
+                    // Close button
+                    Button(action: {
+                        FloatingWindowController.shared.hideWindow()
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                            .frame(width: 24, height: 24)
+                    }
                     .buttonStyle(.borderless)
                     .help("Close floating bar")
+                    .accessibilityLabel("Close floating bar")
                 }
                 .transition(.scale.combined(with: .opacity))
             }
         }
         .padding(.horizontal, isHovered || appState.status == .recording || appState.status == .enhancing ? 10 : 8)
         .padding(.vertical, 7)
-        // Issue #27: Don't set explicit width on the SwiftUI view — let the
-        // NSPanel control the width via resizePanel(). The view fills the
-        // available space.
         .frame(height: 40)
         .background(
             RoundedRectangle(cornerRadius: 14)
@@ -139,12 +143,16 @@ struct FloatingWindowView: View {
             }
             FloatingWindowController.shared.resizePanel(isHovered: hovering)
         }
-        // Issue #27: Resize panel when recording/enhancing state changes
+        // Issue #23: Properly start/stop waveform animation based on recording state
         .onChange(of: appState.status) { _, newStatus in
-            if !isHovered {
-                let width: CGFloat = (newStatus == .recording || newStatus == .enhancing) ? 200 : 36
-                FloatingWindowController.shared.resizePanelForState(width: width)
-            }
+            isAnimatingWaveform = (newStatus == .recording)
+
+            // Issue #52: Always resize on state change, even when hovered
+            let width: CGFloat = (newStatus == .recording || newStatus == .enhancing) ? 200 : 36
+            FloatingWindowController.shared.resizePanelForState(width: width)
+        }
+        .onAppear {
+            isAnimatingWaveform = (appState.status == .recording)
         }
     }
 
@@ -154,7 +162,6 @@ struct FloatingWindowView: View {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
             showCopiedAnimation = true
         }
-        // Reset after 1.2 seconds
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
             withAnimation(.easeInOut(duration: 0.3)) {
                 showCopiedAnimation = false
@@ -166,23 +173,17 @@ struct FloatingWindowView: View {
         guard !text.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
-        print("📋 Copied to clipboard: \(text.prefix(50))...")
     }
 
-    private func createNote() {
+    // Issue #14: Renamed from createNote() — now clearly opens Notes with text on clipboard
+    private func openNotesWithText() {
         guard !appState.lastTranscript.isEmpty else { return }
         let text = appState.lastTranscript
-        // Issue #24: Use the standard Notes URL scheme instead of assuming
-        // a specific Shortcut named "Create Note" exists. This opens Notes
-        // and creates a new note with the text.
+        copyToClipboard(text)
+        // Open Notes app — user pastes manually with Cmd+V
         if let url = URL(string: "mobilenotes://") {
-            // Copy text to clipboard first, then open Notes for manual paste
-            copyToClipboard(text)
             NSWorkspace.shared.open(url)
-            print("📝 Opened Notes — text copied to clipboard for manual paste")
         } else {
-            // Fallback: copy to clipboard and open Notes app directly
-            copyToClipboard(text)
             NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Notes.app"))
         }
     }

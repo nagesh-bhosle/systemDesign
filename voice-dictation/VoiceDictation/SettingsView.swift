@@ -7,28 +7,28 @@
 
 import SwiftUI
 
-// Issue #23: Single source of truth for available models.
-// AbacusLLMService.swift references this same list instead of duplicating.
-let AVAILABLE_MODELS: [(name: String, label: String, cost: String)] = [
-    ("meta-llama/Meta-Llama-3.1-8B-Instruct", "Meta Llama 3.1 8B", "$0.05/M — very fast + cheapest"),
-    ("deepseek-ai/DeepSeek-V4-Flash-0731", "DeepSeek V4 Flash", "$0.28/M — fast"),
-    ("gpt-4.1-nano", "GPT-4.1 Nano", "$0.40/M — fast"),
-    ("gpt-5-nano", "GPT-5 Nano", "$0.40/M — fast"),
-    ("gpt-5.4-nano", "GPT-5.4 Nano", "$1.25/M — fast"),
-    ("gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite", "$1.50/M — very fast"),
-    ("gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite", "$2.50/M — fastest Gemini"),
-    ("gpt-4o-mini", "GPT-4o Mini", "$0.60/M — previous default"),
-    ("route-llm", "Route LLM (auto)", "Auto-routes to best model"),
-]
+// Issue #41: Encapsulate in an enum namespace instead of global let
+enum AvailableModels {
+    // Issue #15: Use realistic model names that exist on the Abacus AI API
+    static let models: [(name: String, label: String, cost: String)] = [
+        ("meta-llama/Meta-Llama-3.1-8B-Instruct", "Meta Llama 3.1 8B", "$0.05/M — very fast + cheapest"),
+        ("deepseek-ai/DeepSeek-V3", "DeepSeek V3", "$0.28/M — fast"),
+        ("gpt-4.1-nano", "GPT-4.1 Nano", "$0.40/M — fast"),
+        ("gpt-4o-mini", "GPT-4o Mini", "$0.60/M — balanced"),
+        ("gemini-2.0-flash-lite", "Gemini 2.0 Flash Lite", "$1.50/M — very fast"),
+        ("gemini-2.5-flash", "Gemini 2.5 Flash", "$2.50/M — fast Gemini"),
+        ("route-llm", "Route LLM (auto)", "Auto-routes to best model"),
+    ]
+}
 
 struct SettingsView: View {
     @EnvironmentObject var appState: AppState
     @State private var newAPIKey: String = ""
     @State private var showSavedAlert: Bool = false
     @State private var showDeletedAlert: Bool = false
-    // Issue #2: endpointDraft is now the direct binding for the TextField,
-    // so the user can actually see what they type.
     @State private var endpointDraft: String = ""
+    // Issue #46: Endpoint save feedback
+    @State private var showEndpointSaved: Bool = false
 
     var body: some View {
         Form {
@@ -38,19 +38,36 @@ struct SettingsView: View {
 
                 HStack {
                     Button("Save Key") {
-                        KeychainHelper.shared.saveAPIKey(newAPIKey)
-                        appState.apiKey = newAPIKey
-                        newAPIKey = ""
-                        showSavedAlert = true
+                        // Issue #11: Check Keychain save result
+                        let result = KeychainHelper.shared.saveAPIKey(newAPIKey)
+                        switch result {
+                        case .success:
+                            appState.apiKey = newAPIKey
+                            newAPIKey = ""
+                            showSavedAlert = true
+                            // Issue #45: Auto-dismiss after 2 seconds
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                showSavedAlert = false
+                            }
+                        case .failure(let error):
+                            appState.errorMessage = error.localizedDescription
+                        }
                     }
                     .disabled(newAPIKey.isEmpty)
 
-                    // Issue #21: Add Delete Key button
                     Button("Delete Key") {
-                        KeychainHelper.shared.deleteAPIKey()
-                        appState.apiKey = ""
-                        showDeletedAlert = true
-                        showSavedAlert = false
+                        let result = KeychainHelper.shared.deleteAPIKey()
+                        switch result {
+                        case .success:
+                            appState.apiKey = ""
+                            showDeletedAlert = true
+                            showSavedAlert = false
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                showDeletedAlert = false
+                            }
+                        case .failure(let error):
+                            appState.errorMessage = error.localizedDescription
+                        }
                     }
                     .disabled(appState.apiKey.isEmpty)
                 }
@@ -79,16 +96,26 @@ struct SettingsView: View {
             }
 
             Section("AI Text Enhancement") {
+                // Issue #19: Show clear state when disabled
                 Toggle("Enable LLM cleanup (remove filler words, fix grammar)", isOn: $appState.enhanceEnabled)
                     .disabled(appState.apiKey.isEmpty)
 
+                if appState.apiKey.isEmpty {
+                    Text("Enter an API key above to enable LLM cleanup.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else if !appState.enhanceEnabled {
+                    Text("LLM cleanup is disabled. Raw speech-to-text will be used.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
                 if appState.enhanceEnabled && !appState.apiKey.isEmpty {
-                    // Model dropdown
                     Picker("Model", selection: Binding(
                         get: { appState.llmModel },
                         set: { appState.saveLLMModel($0) }
                     )) {
-                        ForEach(AVAILABLE_MODELS, id: \.name) { model in
+                        ForEach(AvailableModels.models, id: \.name) { model in
                             VStack(alignment: .leading) {
                                 Text(model.label)
                                 Text(model.cost)
@@ -99,8 +126,6 @@ struct SettingsView: View {
                         }
                     }
 
-                    // Issue #2: Bind directly to endpointDraft so user can see what they type.
-                    // Save button commits the draft to AppState.
                     HStack {
                         TextField("Endpoint URL", text: $endpointDraft, prompt: Text("https://routellm.abacus.ai/v1/chat/completions"))
                             .textFieldStyle(.roundedBorder)
@@ -109,9 +134,21 @@ struct SettingsView: View {
                             let trimmed = endpointDraft.trimmingCharacters(in: .whitespacesAndNewlines)
                             if !trimmed.isEmpty {
                                 appState.saveLLMEndpoint(trimmed)
+                                // Issue #46: Show save confirmation
+                                showEndpointSaved = true
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                    showEndpointSaved = false
+                                }
                             }
                         }
                         .disabled(endpointDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+
+                    // Issue #46: Endpoint save feedback
+                    if showEndpointSaved {
+                        Text("✅ Endpoint saved")
+                            .font(.caption)
+                            .foregroundColor(.green)
                     }
 
                     Text("Current: \(appState.llmModel)")
@@ -134,11 +171,10 @@ struct SettingsView: View {
             }
 
             Section("About") {
-                // Issue #18: Match Info.plist version
                 Text("Voice Dictation v0.1.0")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Text("Speech recognition runs on-device. Press ⌥⇧Space to start/stop. Text is copied to clipboard — paste with Cmd+V.")
+                Text("Speech recognition runs on-device. Press ⌥⇧Space to start/stop. Text is pasted at cursor (or copied to clipboard).")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

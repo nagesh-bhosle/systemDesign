@@ -11,8 +11,7 @@ struct MenuBarView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.openSettings) private var openSettings
     @State private var showHistory = false
-    // Issue #9: Observe FloatingWindowController so the button label updates
-    // when visibility changes.
+    @State private var showCopiedFeedback = false
     @ObservedObject private var floatingController = FloatingWindowController.shared
 
     var body: some View {
@@ -52,7 +51,9 @@ struct MenuBarView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(appState.status == .transcribing)
+            // Issue #24: Also disable during enhancing
+            .disabled(appState.status == .transcribing || appState.status == .enhancing)
+            .accessibilityLabel(appState.status == .recording ? "Stop and transcribe" : "Start recording")
 
             // Last transcript
             if !appState.lastTranscript.isEmpty {
@@ -66,11 +67,19 @@ struct MenuBarView: View {
                         .lineLimit(5)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Button("Copy Again") {
+                    // Issue #47: Add copy feedback
+                    Button {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(appState.lastTranscript, forType: .string)
+                        showCopiedFeedback = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            showCopiedFeedback = false
+                        }
+                    } label: {
+                        Text(showCopiedFeedback ? "✅ Copied!" : "Copy Again")
                     }
                     .buttonStyle(.bordered)
+                    .accessibilityLabel("Copy last transcript to clipboard")
                 }
             }
 
@@ -83,7 +92,6 @@ struct MenuBarView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            // Issue #9: Use observed floatingController so label updates reactively
             Button(action: {
                 if floatingController.isVisible {
                     floatingController.hideWindow()
@@ -96,6 +104,7 @@ struct MenuBarView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+            .accessibilityLabel(floatingController.isVisible ? "Hide floating bar" : "Show floating bar")
 
             Divider()
 
@@ -104,9 +113,11 @@ struct MenuBarView: View {
                 Button("Settings") {
                     openSettings()
                 }
+                .accessibilityLabel("Open settings")
                 Button("History") {
                     showHistory = true
                 }
+                .accessibilityLabel("Open transcript history")
                 Spacer()
                 Button("Quit") {
                     NSApplication.shared.terminate(nil)
@@ -114,6 +125,7 @@ struct MenuBarView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .help("Close the app completely")
+                .accessibilityLabel("Quit Voice Dictation")
             }
         }
         .padding()

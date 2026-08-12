@@ -10,7 +10,6 @@ import SwiftUI
 @main
 struct VoiceDictationApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    // Issue #28: Use createPrimary() so the singleton is set correctly
     @StateObject private var appState = AppState.createPrimary()
 
     var body: some Scene {
@@ -22,14 +21,18 @@ struct VoiceDictationApp: App {
                 Image(systemName: "waveform")
                     .foregroundColor(.red)
                     .symbolEffect(.variableColor.iterative, options: .repeating)
+                    .accessibilityLabel("Voice Dictation is recording")
             } else if appState.status == .enhancing {
                 Image(systemName: "sparkles")
                     .symbolEffect(.pulse, options: .repeating)
+                    .accessibilityLabel("Voice Dictation is enhancing text")
             } else if appState.status == .error {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(.red)
+                    .accessibilityLabel("Voice Dictation error")
             } else {
                 Image(systemName: "mic.fill")
+                    .accessibilityLabel("Voice Dictation")
             }
         }
         .menuBarExtraStyle(.window)

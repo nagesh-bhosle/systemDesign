@@ -8,9 +8,8 @@
 
 import Cocoa
 import Carbon.HIToolbox
+import os
 
-// Issue #29: Use a class-based box with a static singleton instead of a
-// file-scope mutable variable. This is cleaner and more maintainable.
 private final class HotkeyManagerBox {
     static let shared = HotkeyManagerBox()
     weak var manager: HotkeyManager?
@@ -18,21 +17,22 @@ private final class HotkeyManagerBox {
 }
 
 final class HotkeyManager {
+    private let logger = Logger(subsystem: "com.nagesh.voicedictation", category: "HotkeyManager")
     private var eventHandler: EventHandlerRef?
     private var hotkeyRef: EventHotKeyRef?
     private static let hotkeyID: UInt32 = 1
 
-    // Singleton so the Carbon callback can reach the shared AppState
     static let shared = HotkeyManager()
 
     private init() {}
 
-    func registerHotkey() {
+    // Issue #13: Return success/failure so callers can report errors
+    @discardableResult
+    func registerHotkey() -> Bool {
         let eventSpec = [
             EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         ]
 
-        // Store self in the shared box so the C callback can reach us
         HotkeyManagerBox.shared.manager = self
 
         let handler: @convention(c) (EventHandlerCallRef?, EventRef?, UnsafeMutableRawPointer?) -> OSStatus = { _, _, _ in
@@ -40,7 +40,8 @@ final class HotkeyManager {
             return noErr
         }
 
-        InstallEventHandler(
+        // Issue #13: Check InstallEventHandler result
+        let installStatus = InstallEventHandler(
             GetApplicationEventTarget(),
             handler,
             1,
@@ -49,6 +50,11 @@ final class HotkeyManager {
             &eventHandler
         )
 
+        guard installStatus == noErr else {
+            logger.error("Failed to install event handler: \(installStatus)")
+            return false
+        }
+
         let modifiers: UInt32 = UInt32(optionKey | shiftKey)
         let keyCode: UInt32 = UInt32(kVK_Space) // 49 = Space
 
@@ -56,7 +62,8 @@ final class HotkeyManager {
         hotKeyID.signature = OSType(0x564F4944) // "VOID"
         hotKeyID.id = HotkeyManager.hotkeyID
 
-        RegisterEventHotKey(
+        // Issue #13: Check RegisterEventHotKey result
+        let registerStatus = RegisterEventHotKey(
             keyCode,
             modifiers,
             hotKeyID,
@@ -65,7 +72,13 @@ final class HotkeyManager {
             &hotkeyRef
         )
 
-        print("✅ Global hotkey registered: Option+Shift+Space")
+        guard registerStatus == noErr else {
+            logger.error("Failed to register hotkey: \(registerStatus) — possible conflict with another app")
+            return false
+        }
+
+        logger.info("Global hotkey registered: Option+Shift+Space")
+        return true
     }
 
     func unregisterHotkey() {
@@ -77,15 +90,12 @@ final class HotkeyManager {
             RemoveEventHandler(handler)
             eventHandler = nil
         }
+        logger.info("Global hotkey unregistered")
     }
 
     private func onHotkeyPressed() {
         DispatchQueue.main.async {
-            // Direct call to AppState — works regardless of which window is frontmost
             AppState.shared?.toggleRecording()
         }
     }
 }
-
-// Issue #29: Removed file-scope mutable variable — using HotkeyManagerBox
-// singleton instead. Issue #37: Removed unused Notification.Name.toggleDictation.

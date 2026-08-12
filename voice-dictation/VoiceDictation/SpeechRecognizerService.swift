@@ -9,84 +9,142 @@
 import Foundation
 import Speech
 import AVFoundation
+import os
 
-final class SpeechRecognizerService {
+// Issue #37: Proper error types instead of hardcoded NSError
+enum SpeechRecognizerError: LocalizedError {
+    case recognizerUnavailable
+    case couldNotCreateRequest
+    case invalidAudioFormat
+    case audioEngineStartFailed(Error)
+    case recognitionFailed(Error)
+
+    var errorDescription: String? {
+        switch self {
+        case .recognizerUnavailable:
+            return "Speech recognition is not available on this device."
+        case .couldNotCreateRequest:
+            return "Could not create recognition request."
+        case .invalidAudioFormat:
+            return "Audio input format is invalid. Check microphone permission."
+        case .audioEngineStartFailed(let error):
+            return "Could not start audio engine: \(error.localizedDescription)"
+        case .recognitionFailed(let error):
+            return "Recognition failed: \(error.localizedDescription)"
+        }
+    }
+}
+
+final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
+    private let logger = Logger(subsystem: "com.nagesh.voicedictation", category: "SpeechRecognizer")
     private var speechRecognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
-    private var completion: ((Result<String, Error>) -> Void)?
-    private var hasCompleted: Bool = false
-    private var isRunning: Bool = false
-    private var lastPartialText: String = ""
+
+    // Issue #2: All mutable state is accessed on a serial queue to prevent data races
+    private let stateQueue = DispatchQueue(label: "com.nagesh.voicedictation.speech-state")
+    private var _completion: ((Result<String, Error>) -> Void)?
+    private var _hasCompleted: Bool = false
+    private var _isRunning: Bool = false
+    private var _lastPartialText: String = ""
+
     var onPartialResult: ((String) -> Void)?
 
     init(locale: Locale = Locale(identifier: "en-US")) {
-        // Issue #3/#39: Don't force-unwrap — handle nil gracefully
         if let recognizer = SFSpeechRecognizer(locale: locale) {
             speechRecognizer = recognizer
         } else {
             speechRecognizer = SFSpeechRecognizer()
         }
+        super.init()
+        // Issue #49: Observe availability changes at runtime
+        speechRecognizer?.delegate = self
     }
 
     deinit {
-        // Issue #14: Clean up resources on deallocation
         cancel()
     }
 
+    // MARK: - SFSpeechRecognizerDelegate
+
+    // Issue #49: Handle availability changes at runtime
+    func speechRecognizer(_ speechRecognizer: SFSpeechRecognizer, availabilityDidChange available: Bool) {
+        if !available {
+            logger.warning("Speech recognizer became unavailable mid-session")
+            stateQueue.sync {
+                if !_hasCompleted {
+                    _hasCompleted = true
+                    _isRunning = false
+                    let cb = _completion
+                    _completion = nil
+                    DispatchQueue.main.async {
+                        cb?(.failure(SpeechRecognizerError.recognizerUnavailable))
+                    }
+                }
+            }
+        } else {
+            logger.info("Speech recognizer became available")
+        }
+    }
+
+    // MARK: - Thread-safe state accessors
+
+    private var hasCompleted: Bool {
+        stateQueue.sync { _hasCompleted }
+    }
+
+    private var isRunning: Bool {
+        stateQueue.sync { _isRunning }
+    }
+
+    private var lastPartialText: String {
+        stateQueue.sync { _lastPartialText }
+    }
+
+    // MARK: - Permission
+
     func requestAuthorization(completion: @escaping (Bool) -> Void) {
-        // Issue #10: Request microphone permission in addition to speech recognition
         AVAudioApplication.requestRecordPermission { micGranted in
             guard micGranted else {
-                DispatchQueue.main.async {
-                    completion(false)
-                }
+                DispatchQueue.main.async { completion(false) }
                 return
             }
-
             SFSpeechRecognizer.requestAuthorization { status in
-                DispatchQueue.main.async {
-                    completion(status == .authorized)
-                }
+                DispatchQueue.main.async { completion(status == .authorized) }
             }
         }
     }
 
+    // MARK: - Start / Stop / Cancel
+
     func startRecognition(completion: @escaping (Result<String, Error>) -> Void) {
-        // Cancel any existing task first
         cancel()
 
-        // Issue #39: Check if speech recognizer is available
         guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
-            completion(.failure(NSError(
-                domain: "SpeechRecognizer",
-                code: -2,
-                userInfo: [NSLocalizedDescriptionKey: "Speech recognition is not available on this device."]
-            )))
+            completion(.failure(SpeechRecognizerError.recognizerUnavailable))
             return
         }
 
-        // Reset state
-        hasCompleted = false
-        self.completion = completion
-        isRunning = true
-        lastPartialText = ""
+        stateQueue.sync {
+            _hasCompleted = false
+            _completion = completion
+            _isRunning = true
+            _lastPartialText = ""
+        }
 
-        // Create recognition request
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
         guard let recognitionRequest = recognitionRequest else {
-            finish(with: .failure(NSError(domain: "SpeechRecognizer", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not create recognition request"])))
+            finish(with: .failure(SpeechRecognizerError.couldNotCreateRequest))
             return
         }
         recognitionRequest.shouldReportPartialResults = true
 
-        // Start recognition task
         recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
             guard let self = self else { return }
 
             if let error = error {
-                self.finish(with: .failure(error))
+                self.finish(with: .failure(SpeechRecognizerError.recognitionFailed(error)))
                 return
             }
 
@@ -95,9 +153,7 @@ final class SpeechRecognizerService {
                 if result.isFinal {
                     self.finish(with: .success(text))
                 } else {
-                    // Save partial text for timeout fallback
-                    self.lastPartialText = text
-                    // Partial result — update floating window
+                    self.stateQueue.sync { self._lastPartialText = text }
                     DispatchQueue.main.async {
                         self.onPartialResult?(text)
                     }
@@ -105,18 +161,11 @@ final class SpeechRecognizerService {
             }
         }
 
-        // Set up audio input
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
 
-        // Issue #4: Validate format before installing tap — prevents crash when
-        // microphone permission not yet granted or format is invalid
         guard recordingFormat.channelCount > 0, recordingFormat.sampleRate > 0 else {
-            finish(with: .failure(NSError(
-                domain: "SpeechRecognizer",
-                code: -3,
-                userInfo: [NSLocalizedDescriptionKey: "Audio input format is invalid. Check microphone permission."]
-            )))
+            finish(with: .failure(SpeechRecognizerError.invalidAudioFormat))
             return
         }
 
@@ -129,34 +178,58 @@ final class SpeechRecognizerService {
         do {
             try audioEngine.start()
         } catch {
-            // Clean up tap on failure
             inputNode.removeTap(onBus: 0)
-            finish(with: .failure(error))
+            finish(with: .failure(SpeechRecognizerError.audioEngineStartFailed(error)))
         }
     }
 
     func stopRecognition() {
-        // Issue #11: Guard against calling stop when engine was never started
-        guard isRunning else { return }
+        stateQueue.sync {
+            guard _isRunning else { return }
+        }
 
         if audioEngine.isRunning {
             audioEngine.inputNode.removeTap(onBus: 0)
             audioEngine.stop()
         }
         recognitionRequest?.endAudio()
-        isRunning = false
+
+        stateQueue.sync { _isRunning = false }
 
         // If the recognition task doesn't call back within 3 seconds,
         // force-complete with whatever we have (or empty string)
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
             guard let self = self else { return }
-            if !self.hasCompleted {
-                self.finish(with: .success(self.lastPartialText))
+            let shouldFinish: Bool = self.stateQueue.sync {
+                if !self._hasCompleted {
+                    return true
+                }
+                return false
+            }
+            if shouldFinish {
+                let partial = self.lastPartialText
+                self.finish(with: .success(partial))
             }
         }
     }
 
+    // Issue #10: cancel() now calls the completion with a cancellation error
+    // so the caller knows the result was dropped intentionally.
     func cancel() {
+        let shouldCallCompletion: Bool = stateQueue.sync {
+            let wasRunning = _isRunning && !_hasCompleted
+            _hasCompleted = true
+            _isRunning = false
+            let cb = _completion
+            _completion = nil
+            if wasRunning, let cb = cb {
+                DispatchQueue.main.async {
+                    cb(.failure(SpeechRecognizerError.recognizerUnavailable))
+                }
+            }
+            return wasRunning
+        }
+
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest = nil
@@ -164,27 +237,33 @@ final class SpeechRecognizerService {
             audioEngine.inputNode.removeTap(onBus: 0)
             audioEngine.stop()
         }
-        isRunning = false
-        // Don't call finish here — cancel means we don't want the result
-        hasCompleted = true
-        completion = nil
+        _ = shouldCallCompletion // suppress unused warning
     }
 
     // MARK: - Private
 
     private func finish(with result: Result<String, Error>) {
-        guard !hasCompleted else { return }
-        hasCompleted = true
-        isRunning = false
-        let cb = completion
-        completion = nil
-        // Clean up audio resources
+        let shouldProceed: Bool = stateQueue.sync {
+            guard !_hasCompleted else { return false }
+            _hasCompleted = true
+            _isRunning = false
+            return true
+        }
+        guard shouldProceed else { return }
+
+        let cb = stateQueue.sync { () -> ((Result<String, Error>) -> Void)? in
+            let callback = _completion
+            _completion = nil
+            return callback
+        }
+
         if audioEngine.isRunning {
             audioEngine.inputNode.removeTap(onBus: 0)
             audioEngine.stop()
         }
         recognitionTask = nil
         recognitionRequest = nil
+
         DispatchQueue.main.async {
             cb?(result)
         }

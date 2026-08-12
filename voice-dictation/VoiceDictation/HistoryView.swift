@@ -33,6 +33,7 @@ struct HistoryView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                .accessibilityLabel("Close history")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -45,6 +46,7 @@ struct HistoryView: View {
                     .foregroundColor(.secondary)
                 TextField("Search transcripts...", text: $searchText)
                     .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Search transcripts")
             }
             .padding(8)
 
@@ -85,6 +87,7 @@ struct HistoryView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                .accessibilityLabel("Clear all history")
             }
             .padding(8)
         }
@@ -114,6 +117,7 @@ struct HistoryRow: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Copy to clipboard")
+                .accessibilityLabel("Copy transcript from \(entry.formattedTime)")
             }
             Text(entry.text)
                 .font(.body)

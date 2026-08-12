@@ -4,51 +4,72 @@
 //
 //  Inserts transcribed text at the cursor position.
 //  Strategy:
-//    1. Copy text to clipboard.
-//    2. Check accessibility permission (without prompting if already granted).
-//    3. Simulate Cmd+V to paste at cursor.
-//    4. Fallback: copy to clipboard + show notification.
+//    1. Save existing clipboard contents.
+//    2. Copy text to clipboard.
+//    3. Check accessibility permission (without prompting if already granted).
+//    4. Simulate Cmd+V to paste at cursor.
+//    5. Restore previous clipboard contents after a short delay.
+//    6. Fallback: keep text on clipboard + show notification.
 //
 
 import Cocoa
 import ApplicationServices
 import UserNotifications
+import os
 
 final class TextInserter {
     static let shared = TextInserter()
 
-    private var hasPromptedAccessibility = false
+    private let logger = Logger(subsystem: "com.nagesh.voicedictation", category: "TextInserter")
+
+    private let hasPromptedAccessibilityKey = "hasPromptedAccessibility"
 
     private init() {
-        // Request notification authorization once at init (issue #15)
         requestNotificationAuthorization()
     }
 
     // MARK: - Public
 
-    func insertOrCopy(_ text: String) {
-        // Always copy to clipboard first as a safety net
+    /// Inserts text at cursor or copies to clipboard as fallback.
+    /// Calls `completion` on the main thread with `true` if paste succeeded,
+    /// `false` if only clipboard fallback was used.
+    func insertOrCopy(_ text: String, completion: ((Bool) -> Void)? = nil) {
+        // Save existing clipboard contents so we can restore after paste
+        let previousClipboard = saveClipboardContents()
+
         copyToClipboardSync(text)
 
-        // Try to auto-paste if we have accessibility permission (issue #1)
         if AXIsProcessTrusted() {
             // Small delay to ensure clipboard is set before simulating paste
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                if self?.simulatePaste() == true {
-                    print("📋 Text pasted at cursor (\(text.count) chars)")
+                guard let self = self else {
+                    completion?(false)
+                    return
+                }
+                let pasteSucceeded = self.simulatePaste()
+                if pasteSucceeded {
+                    self.logger.info("Text pasted at cursor (\(text.count) chars)")
+                    // Restore previous clipboard after paste has had time to execute
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        self.restoreClipboardContents(previousClipboard)
+                    }
+                    completion?(true)
                 } else {
-                    self?.showNotification(text)
-                    print("📋 Paste simulation failed — text copied to clipboard (\(text.count) chars)")
+                    // Paste simulation failed — keep text on clipboard and notify
+                    self.logger.warning("Paste simulation failed — text on clipboard (\(text.count) chars)")
+                    self.showNotification(text)
+                    completion?(false)
                 }
             }
         } else {
             // No accessibility permission — prompt once, then fall back to notification
-            if !hasPromptedAccessibility {
+            if !hasPromptedAccessibility() {
                 promptAccessibility()
-                hasPromptedAccessibility = true
+                markPromptedAccessibility()
             }
+            logger.warning("No accessibility permission — text on clipboard (\(text.count) chars)")
             showNotification(text)
-            print("📋 Text copied to clipboard — grant Accessibility for auto-paste (\(text.count) chars)")
+            completion?(false)
         }
     }
 
@@ -59,7 +80,68 @@ final class TextInserter {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
+    // MARK: - Clipboard Save/Restore
+
+    private struct ClipboardContents {
+        let stringData: String?
+        let rtfData: Data?
+        let pdfData: Data?
+        let fileURLs: [URL]
+    }
+
+    private func saveClipboardContents() -> ClipboardContents {
+        let pb = NSPasteboard.general
+        let stringData = pb.string(forType: .string)
+        let rtfData = pb.data(forType: .rtf)
+        let pdfData = pb.data(forType: .pdf)
+        let fileURLs = (pb.readObjects(forClasses: [NSURL.self], options: nil) as? [URL]) ?? []
+        return ClipboardContents(
+            stringData: stringData,
+            rtfData: rtfData,
+            pdfData: pdfData,
+            fileURLs: fileURLs
+        )
+    }
+
+    private func restoreClipboardContents(_ contents: ClipboardContents) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+
+        var items: [NSPasteboardItem] = []
+
+        if let stringData = contents.stringData {
+            let item = NSPasteboardItem()
+            item.setString(stringData, forType: .string)
+            items.append(item)
+        }
+        if let rtfData = contents.rtfData {
+            let item = NSPasteboardItem()
+            item.setData(rtfData, forType: .rtf)
+            items.append(item)
+        }
+        if let pdfData = contents.pdfData {
+            let item = NSPasteboardItem()
+            item.setData(pdfData, forType: .pdf)
+            items.append(item)
+        }
+        if !contents.fileURLs.isEmpty {
+            pb.writeObjects(contents.fileURLs as [NSPasteboardWriting])
+        }
+
+        if !items.isEmpty {
+            pb.writeObjects(items)
+        }
+    }
+
     // MARK: - Accessibility Permission
+
+    private func hasPromptedAccessibility() -> Bool {
+        UserDefaults.standard.bool(forKey: hasPromptedAccessibilityKey)
+    }
+
+    private func markPromptedAccessibility() {
+        UserDefaults.standard.set(true, forKey: hasPromptedAccessibilityKey)
+    }
 
     private func promptAccessibility() {
         let options: NSDictionary = [
@@ -70,19 +152,31 @@ final class TextInserter {
 
     // MARK: - Simulate Paste (Cmd+V)
 
+    /// Simulates Cmd+V keypress. Returns true only if there is a focused app
+    /// that can receive keyboard events.
     private func simulatePaste() -> Bool {
+        // Check that there is a frontmost application that can receive key events
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else {
+            logger.warning("No frontmost application — cannot simulate paste")
+            return false
+        }
+
+        // If the frontmost app is our own menu bar app, there's nowhere to paste
+        if frontApp.bundleIdentifier == Bundle.main.bundleIdentifier {
+            logger.warning("Frontmost app is VoiceDictation itself — nowhere to paste")
+            return false
+        }
+
         let source = CGEventSource(stateID: CGEventSourceStateID.privateState)
 
-        // Key events for Cmd+V
-        let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: true)   // Cmd down
+        let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: true)
         cmdDown?.flags = CGEventFlags.maskCommand
-        let vDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)      // V down
+        let vDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
         vDown?.flags = CGEventFlags.maskCommand
-        let vUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)       // V up
+        let vUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
         vUp?.flags = CGEventFlags.maskCommand
-        let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: false)     // Cmd up
+        let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: false)
 
-        // Post events
         cmdDown?.post(tap: CGEventTapLocation.cghidEventTap)
         vDown?.post(tap: CGEventTapLocation.cghidEventTap)
         vUp?.post(tap: CGEventTapLocation.cghidEventTap)
@@ -93,7 +187,6 @@ final class TextInserter {
 
     // MARK: - Notification
 
-    // Request authorization once at init instead of per-notification (issue #15)
     private func requestNotificationAuthorization() {
         DispatchQueue.main.async {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }

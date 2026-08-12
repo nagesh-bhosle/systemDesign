@@ -24,10 +24,11 @@ Press a global hotkey → speak → transcribed text is inserted at cursor posit
 3. **On-Device Speech-to-Text** — use Apple SFSpeechRecognizer for on-device transcription (no API key needed)
 4. **Optional LLM Cleanup** — send transcript to Abacus AI for filler word removal and grammar correction
 5. **Text Insertion** — paste transcribed text at cursor position using Accessibility API + Cmd+V simulation
-6. **Menu Bar App** — lives in the menu bar with status indicator (idle / recording / transcribing / enhancing)
-7. **Floating UI** — small floating window showing recording status and live transcript preview
-8. **Copy & Paste Fallback** — if auto-insert fails, copy text to clipboard and show a notification
-9. **Transcript History** — searchable history of past dictations
+6. **Clipboard Save/Restore** — previous clipboard contents are preserved after paste
+7. **Menu Bar App** — lives in the menu bar with status indicator (idle / recording / transcribing / enhancing)
+8. **Floating UI** — small floating window showing recording status and live transcript preview
+9. **Copy & Paste Fallback** — if auto-insert fails, copy text to clipboard and show a notification
+10. **Transcript History** — searchable history of past dictations (file-based persistence)
 
 ### Tech Stack
 - **Language:** Swift (native macOS)
@@ -37,7 +38,8 @@ Press a global hotkey → speak → transcribed text is inserted at cursor posit
 - **LLM Cleanup (Optional):** Abacus AI (routellm.abacus.ai) — OpenAI-compatible API
 - **Global Hotkey:** Carbon framework (RegisterEventHotKey)
 - **Text Insertion:** Accessibility API (AXUIElement) + Cmd+V simulation with clipboard fallback
-- **Key Storage:** macOS Keychain
+- **Key Storage:** macOS Keychain (with `kSecAttrAccessibleWhenUnlocked`)
+- **Logging:** os.Logger for leveled, privacy-aware logging
 - **Minimum macOS:** 14.0 (Sonoma)
 
 ## Phase 2 — AI Enhancement (Future)
@@ -65,24 +67,23 @@ Press a global hotkey → speak → transcribed text is inserted at cursor posit
 
 ```
 voice-dictation/
-├── Package.swift               # SPM manifest (unused — build via run.sh)
 ├── run.sh                      # Build & launch script
 ├── stop.sh                     # Stop running instance
 ├── VoiceDictation/
 │   ├── VoiceDictationApp.swift # App entry point, menu bar
-│   ├── AppDelegate.swift       # Global hotkey registration
+│   ├── AppDelegate.swift       # Global hotkey registration with error reporting
 │   ├── AppState.swift          # Central state, orchestrates flow
-│   ├── HotkeyManager.swift     # Global hotkey via Carbon
-│   ├── SpeechRecognizerService.swift  # On-device SFSpeechRecognizer
-│   ├── AbacusLLMService.swift  # Optional LLM text cleanup (Abacus AI)
-│   ├── TextInserter.swift      # Accessibility API + Cmd+V text insertion
-│   ├── FloatingWindowController.swift  # Floating window lifecycle
+│   ├── HotkeyManager.swift     # Global hotkey via Carbon (with error checking)
+│   ├── SpeechRecognizerService.swift  # On-device SFSpeechRecognizer (thread-safe)
+│   ├── AbacusLLMService.swift  # Optional LLM text cleanup (with retry + cancellation)
+│   ├── TextInserter.swift      # Accessibility API + Cmd+V text insertion (clipboard save/restore)
+│   ├── FloatingWindowController.swift  # Floating window lifecycle (position persistence)
 │   ├── FloatingWindowView.swift # Floating bar UI
 │   ├── MenuBarView.swift       # Menu bar dropdown UI
 │   ├── SettingsView.swift      # Settings window (API key, model, endpoint)
 │   ├── HistoryView.swift       # Searchable transcript history
-│   ├── TranscriptHistory.swift # Local persistence
-│   ├── KeychainHelper.swift    # Secure API key storage
+│   ├── TranscriptHistory.swift # Local persistence (file-based in Application Support)
+│   ├── KeychainHelper.swift    # Secure API key storage (with error checking)
 │   └── Info.plist              # App metadata & permissions
 ├── REQUIREMENTS.md             # This file
 └── README.md                   # Setup & usage guide
@@ -100,6 +101,8 @@ voice-dictation/
 [Optional: Abacus AI LLM Cleanup] → [Enhanced Text]
      ↓
 [Insert at Cursor via AX API + Cmd+V] — or — [Copy to Clipboard + Notify]
+     ↓
+[Save to History] (after paste completes)
 ```
 
 ## API Key
@@ -107,6 +110,7 @@ voice-dictation/
 - Abacus AI API key (optional — for LLM text cleanup only) stored in macOS Keychain
 - User enters key via Settings on first launch (optional)
 - Key is never logged or stored in plaintext
+- Keychain item uses `kSecAttrAccessibleWhenUnlocked` for explicit accessibility
 - Without a key, raw on-device speech-to-text is used directly
 
 ## Permissions Required
@@ -115,7 +119,6 @@ voice-dictation/
 - **Speech Recognition** — `NSSpeechRecognitionUsageDescription`
 - **Accessibility** — for simulating keystrokes / text insertion at cursor
 - **Notifications** — `NSUserNotificationsUsageDescription` — notify when text is copied
-- **Apple Events** — `NSAppleEventsUsageDescription` — open Notes app
 
 ## Non-Goals (for MVP)
 

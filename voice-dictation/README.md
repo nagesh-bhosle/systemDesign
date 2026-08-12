@@ -37,12 +37,19 @@ Then press **⌥⇧Space** (Option+Shift+Space) anywhere to start recording. Pre
 - ✅ On-device speech recognition via Apple SFSpeechRecognizer (no API key needed)
 - ✅ Optional LLM text cleanup via Abacus AI (remove filler words, fix grammar)
 - ✅ Auto-paste at cursor position (Accessibility API + Cmd+V simulation)
+- ✅ Clipboard save/restore — previous clipboard contents are preserved after paste
 - ✅ Clipboard fallback with notification
 - ✅ Menu bar app with status indicator
 - ✅ Floating window with live transcript preview
-- ✅ Secure API key storage in macOS Keychain
+- ✅ Secure API key storage in macOS Keychain (with explicit accessibility attribute)
 - ✅ Last transcript preview in menu bar
-- ✅ Searchable transcript history
+- ✅ Searchable transcript history (file-based persistence in Application Support)
+- ✅ Accessibility labels on all UI elements
+- ✅ Error checking on Keychain and hotkey registration
+- ✅ LLM request cancellation when user interrupts enhancement
+- ✅ Retry logic for transient LLM network errors
+- ✅ Thread-safe speech recognizer with serial queue synchronization
+- ✅ os.Logger for leveled logging throughout
 
 ### Phase 2 (Future)
 - Spelling correction
@@ -64,18 +71,18 @@ Then press **⌥⇧Space** (Option+Shift+Space) anywhere to start recording. Pre
 |------|---------------|
 | `VoiceDictationApp.swift` | App entry, menu bar setup |
 | `AppState.swift` | Central state, orchestrates recording → transcription → enhancement → insertion |
-| `AppDelegate.swift` | App lifecycle, hotkey registration |
-| `HotkeyManager.swift` | Global hotkey via Carbon framework |
-| `SpeechRecognizerService.swift` | On-device speech recognition via SFSpeechRecognizer |
-| `AbacusLLMService.swift` | Optional LLM text cleanup via Abacus AI API |
-| `TextInserter.swift` | Text insertion at cursor (clipboard + Cmd+V) |
-| `FloatingWindowController.swift` | Manages floating window lifecycle |
+| `AppDelegate.swift` | App lifecycle, hotkey registration with error reporting |
+| `HotkeyManager.swift` | Global hotkey via Carbon framework (with error checking) |
+| `SpeechRecognizerService.swift` | On-device speech recognition via SFSpeechRecognizer (thread-safe) |
+| `AbacusLLMService.swift` | Optional LLM text cleanup via Abacus AI API (with retry + cancellation) |
+| `TextInserter.swift` | Text insertion at cursor (clipboard save/restore + Cmd+V) |
+| `FloatingWindowController.swift` | Manages floating window lifecycle (with position persistence) |
 | `FloatingWindowView.swift` | Floating bar UI with live transcript |
 | `MenuBarView.swift` | Menu bar dropdown UI |
 | `SettingsView.swift` | API key settings, LLM model/endpoint config, hotkey info |
 | `HistoryView.swift` | Searchable transcript history |
-| `TranscriptHistory.swift` | Local persistence of past dictations |
-| `KeychainHelper.swift` | Secure API key storage |
+| `TranscriptHistory.swift` | Local persistence (file-based in Application Support) |
+| `KeychainHelper.swift` | Secure API key storage (with error checking) |
 
 ## Permissions
 
@@ -92,8 +99,9 @@ Then press **⌥⇧Space** (Option+Shift+Space) anywhere to start recording. Pre
 - **AVFoundation** — audio recording
 - **Carbon** — global hotkey registration
 - **ApplicationServices** — accessibility for text insertion
-- **Security** — Keychain for API key
+- **Security** — Keychain for API key (with `kSecAttrAccessibleWhenUnlocked`)
 - **Abacus AI** — optional LLM text cleanup (OpenAI-compatible API)
+- **os.Logger** — leveled logging throughout
 
 ## License
 MIT
