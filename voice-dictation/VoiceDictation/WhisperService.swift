@@ -9,7 +9,7 @@
 import Foundation
 
 final class WhisperService {
-    private let endpoint = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
+    private let endpoint = URL(string: "https://routellm.abacus.ai/v1/audio/transcriptions")!
 
     func transcribe(
         audioURL: URL,

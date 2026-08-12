@@ -11,7 +11,7 @@ import Security
 final class KeychainHelper {
     static let shared = KeychainHelper()
     private let service = "com.nagesh.voicedictation"
-    private let account = "openai-api-key"
+    private let account = "routellm-api-key"
 
     private init() {}
 

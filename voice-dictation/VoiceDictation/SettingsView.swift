@@ -14,8 +14,8 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("OpenAI API Key") {
-                SecureField("sk-...", text: $newAPIKey)
+            Section("API Key (routellm.abacus.ai)") {
+                SecureField("your-api-key...", text: $newAPIKey)
                     .textFieldStyle(.roundedBorder)
 
                 Button("Save Key") {
