@@ -2,35 +2,18 @@
 
 A WisprFlow-inspired macOS menu bar app that lets you speak and inserts the transcribed text wherever your cursor is.
 
-## Quick Start
-
-### Prerequisites
-- macOS 14.0+ (Sonoma)
-- Xcode 15+ (or Swift 5.9+ command line tools)
-- OpenAI API key (for Whisper transcription)
-
-### Build & Run
+## One-Click Run
 
 ```bash
 cd systemDesign/voice-dictation
-swiftc -framework Cocoa -framework SwiftUI -framework AVFoundation \
-  -framework Carbon -framework ApplicationServices -framework Security \
-  -parse-as-library \
-  VoiceDictation/*.swift \
-  -o VoiceDictation.app/Contents/MacOS/VoiceDictation
+./run.sh
 ```
 
-Or open in Xcode:
-```bash
-open VoiceDictation.xcodeproj
-```
+That's it. The script builds the app and launches it. A 🎤 icon appears in your menu bar.
 
-### First Launch
-1. The app appears as a **microphone icon** in the menu bar
-2. Click it → **Settings** → enter your OpenAI API key
-3. Grant **Microphone** and **Accessibility** permissions when prompted
-4. Press **⌥⇧Space** (Option+Shift+Space) anywhere to start recording
-5. Press again to stop — text is transcribed and pasted at your cursor
+**First time only:** Click the 🎤 icon → **Settings** → paste your OpenAI API key.
+
+Then press **⌥⇧Space** (Option+Shift+Space) anywhere to start recording. Press again to stop — your speech is transcribed and pasted at your cursor.
 
 ## How It Works
 
@@ -38,6 +21,12 @@ open VoiceDictation.xcodeproj
 [⌥⇧Space] → Start Recording → [Speak] → [⌥⇧Space] → Stop
     → Whisper API Transcription → Paste at Cursor (or Copy to Clipboard)
 ```
+
+## Prerequisites
+
+- macOS 14.0+ (Sonoma)
+- Swift command line tools (`xcode-select --install`)
+- OpenAI API key (for Whisper transcription)
 
 ## Features
 
