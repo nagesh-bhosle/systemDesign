@@ -9,6 +9,7 @@ import SwiftUI
 
 struct MenuBarView: View {
     @EnvironmentObject var appState: AppState
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(spacing: 12) {
@@ -66,11 +67,7 @@ struct MenuBarView: View {
             // Settings & Quit
             HStack {
                 Button("Settings") {
-                    if #available(macOS 14.0, *) {
-                        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-                    } else {
-                        NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
-                    }
+                    openSettings()
                 }
                 Spacer()
                 Button("Quit") {
