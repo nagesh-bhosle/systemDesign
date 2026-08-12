@@ -61,13 +61,6 @@ struct FloatingWindowView: View {
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                } else if !appState.lastTranscript.isEmpty {
-                    Text(appState.lastTranscript)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     Text("Voice Dictation")
                         .font(.system(size: 11))
@@ -138,8 +131,8 @@ struct FloatingWindowView: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
 
-            // ── Expanded section (only on hover, shows transcript) ──
-            if isHovered && (appState.status == .recording || !appState.lastTranscript.isEmpty || !appState.errorMessage.isEmpty) {
+            // ── Expanded section (only on hover, shows live transcript + errors) ──
+            if isHovered && (appState.status == .recording || !appState.liveTranscript.isEmpty || !appState.errorMessage.isEmpty) {
                 Divider()
                     .opacity(0.3)
 
@@ -151,21 +144,6 @@ struct FloatingWindowView: View {
                             .foregroundColor(.secondary)
                         ScrollView {
                             Text(appState.liveTranscript)
-                                .font(.system(size: 13))
-                                .foregroundColor(.primary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .textSelection(.enabled)
-                        }
-                        .frame(maxHeight: 100)
-                    }
-
-                    // Last transcript
-                    if appState.status == .idle && !appState.lastTranscript.isEmpty {
-                        Text("Last Transcript")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        ScrollView {
-                            Text(appState.lastTranscript)
                                 .font(.system(size: 13))
                                 .foregroundColor(.primary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
