@@ -82,6 +82,22 @@ struct MenuBarView: View {
 
             Divider()
 
+            // Floating bar toggle
+            Button(action: {
+                if FloatingWindowController.shared.isVisible {
+                    FloatingWindowController.shared.hideWindow()
+                } else {
+                    FloatingWindowController.shared.showWindow(appState: appState)
+                }
+            }) {
+                Label(FloatingWindowController.shared.isVisible ? "Hide Floating Bar" : "Show Floating Bar",
+                      systemImage: "rectangle.topthird.inset.filled")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+
+            Divider()
+
             // Settings, History & Quit
             HStack {
                 Button("Settings") {
@@ -94,6 +110,9 @@ struct MenuBarView: View {
                 Button("Quit") {
                     NSApplication.shared.terminate(nil)
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .help("Close the app completely")
             }
         }
         .padding()

@@ -28,6 +28,8 @@ final class AppState: ObservableObject {
     @Published var showFloatingWindow: Bool = true
     @Published var history: [TranscriptEntry] = TranscriptHistory.shared.loadHistory()
 
+    static var shared: AppState?
+
     var statusIcon: String {
         switch status {
         case .idle:
@@ -62,7 +64,7 @@ final class AppState: ObservableObject {
         errorMessage = ""
         liveTranscript = ""
 
-        // Show floating window
+        // Show floating window if not already visible
         if showFloatingWindow {
             FloatingWindowController.shared.showWindow(appState: self)
         }
@@ -151,12 +153,8 @@ final class AppState: ObservableObject {
     }
 
     private func hideFloatingWindow() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            // Keep window visible for 2 seconds after completion so user can see result
-            if self.status == .idle {
-                FloatingWindowController.shared.hideWindow()
-            }
-        }
+        // Window stays visible — user closes it via the X button
+        // This is called after transcription completes; no auto-hide
     }
 
     private func saveToHistory(text: String) {

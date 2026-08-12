@@ -27,7 +27,7 @@ final class FloatingWindowController: ObservableObject {
             let hostingController = NSHostingController(rootView: AnyView(contentView))
             self.hostingController = hostingController
 
-            let panelSize = NSSize(width: 340, height: 200)
+            let panelSize = NSSize(width: 400, height: 60)
             let panelFrame = NSRect(x: 0, y: 0, width: panelSize.width, height: panelSize.height)
 
             panel = NSPanel(
@@ -46,11 +46,11 @@ final class FloatingWindowController: ObservableObject {
             panel?.hidesOnDeactivate = false
             panel?.contentViewController = hostingController
 
-            // Position: top-right corner of screen
+            // Position: top-center of screen
             if let screen = NSScreen.main {
                 let screenFrame = screen.visibleFrame
-                let x = screenFrame.maxX - panelSize.width - 20
-                let y = screenFrame.maxY - panelSize.height - 20
+                let x = (screenFrame.width - panelSize.width) / 2 + screenFrame.minX
+                let y = screenFrame.maxY - panelSize.height - 10
                 panel?.setFrame(NSRect(x: x, y: y, width: panelSize.width, height: panelSize.height), display: true)
             }
         }
