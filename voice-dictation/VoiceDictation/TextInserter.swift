@@ -2,7 +2,8 @@
 //  TextInserter.swift
 //  VoiceDictation
 //
-//  Inserts transcribed text at the cursor position.
+//  Inserts transcribed text at the cursor of the app that was focused
+//  when recording started (not Voice Dictation itself).
 //
 
 import Cocoa
@@ -15,13 +16,25 @@ final class TextInserter {
 
     private let logger = Logger(subsystem: "com.nagesh.voicedictation", category: "TextInserter")
 
-    private let hasPromptedAccessibilityKey = "hasPromptedAccessibility"
-
     var clipboardOnlyMode: Bool = false
     var restoreClipboardEnabled: Bool = true
 
+    /// App that had keyboard focus when the user started dictating.
+    private var insertionTarget: NSRunningApplication?
+
     private init() {
         requestNotificationAuthorization()
+    }
+
+    // MARK: - Target app
+
+    /// Call when recording starts, before showing our own windows.
+    func captureInsertionTarget() {
+        guard let front = NSWorkspace.shared.frontmostApplication else { return }
+        if front.bundleIdentifier != Bundle.main.bundleIdentifier {
+            insertionTarget = front
+            logger.info("Insertion target: \(front.localizedName ?? "unknown", privacy: .public)")
+        }
     }
 
     // MARK: - Public
@@ -37,36 +50,62 @@ final class TextInserter {
             return
         }
 
-        if AXIsProcessTrusted() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                guard let self = self else {
-                    completion?(false)
-                    return
-                }
-                let pasteSucceeded = self.simulatePaste()
-                if pasteSucceeded {
-                    self.logger.info("Text pasted at cursor (\(text.count) chars)")
-                    if self.restoreClipboardEnabled {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            self.restoreClipboardContents(previousClipboard)
-                        }
-                    }
-                    completion?(true)
-                } else {
-                    self.logger.warning("Paste simulation failed — text on clipboard (\(text.count) chars)")
-                    self.showNotification(text)
-                    completion?(false)
-                }
-            }
-        } else {
-            if !hasPromptedAccessibility() {
-                promptAccessibility()
-                markPromptedAccessibility()
-            }
+        guard AXIsProcessTrusted() else {
+            promptAccessibility()
             logger.warning("No accessibility permission — text on clipboard (\(text.count) chars)")
             showNotification(text)
             completion?(false)
+            return
         }
+
+        guard let target = resolvedInsertionTarget() else {
+            logger.warning("No target app for paste — text on clipboard")
+            showNotification(text)
+            completion?(false)
+            return
+        }
+
+        if #available(macOS 14.0, *) {
+            NSApp.yieldActivation(to: target)
+            _ = target.activate()
+        } else {
+            _ = target.activate(options: [.activateIgnoringOtherApps])
+        }
+
+        let pid = target.processIdentifier
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self else {
+                completion?(false)
+                return
+            }
+
+            let pasteSucceeded = self.postCommandV(to: pid)
+            if pasteSucceeded {
+                self.logger.info("Posted Cmd+V to \(target.localizedName ?? "app", privacy: .public) (\(text.count) chars)")
+                if self.restoreClipboardEnabled {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        self.restoreClipboardContents(previousClipboard)
+                    }
+                }
+                completion?(true)
+            } else {
+                self.logger.warning("Paste simulation failed — text on clipboard (\(text.count) chars)")
+                self.showNotification(text)
+                completion?(false)
+            }
+        }
+    }
+
+    private func resolvedInsertionTarget() -> NSRunningApplication? {
+        if let saved = insertionTarget, !saved.isTerminated,
+           saved.bundleIdentifier != Bundle.main.bundleIdentifier {
+            return saved
+        }
+        if let front = NSWorkspace.shared.frontmostApplication,
+           front.bundleIdentifier != Bundle.main.bundleIdentifier {
+            return front
+        }
+        return nil
     }
 
     // MARK: - Clipboard
@@ -75,8 +114,6 @@ final class TextInserter {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
-
-    // MARK: - Clipboard Save/Restore
 
     private struct ClipboardContents {
         let stringData: String?
@@ -140,21 +177,12 @@ final class TextInserter {
         if !contents.fileURLs.isEmpty {
             pb.writeObjects(contents.fileURLs as [NSPasteboardWriting])
         }
-
         if !items.isEmpty {
             pb.writeObjects(items)
         }
     }
 
     // MARK: - Accessibility Permission
-
-    private func hasPromptedAccessibility() -> Bool {
-        UserDefaults.standard.bool(forKey: hasPromptedAccessibilityKey)
-    }
-
-    private func markPromptedAccessibility() {
-        UserDefaults.standard.set(true, forKey: hasPromptedAccessibilityKey)
-    }
 
     private func promptAccessibility() {
         let options: NSDictionary = [
@@ -165,18 +193,12 @@ final class TextInserter {
 
     // MARK: - Simulate Paste (Cmd+V)
 
-    private func simulatePaste() -> Bool {
-        guard let frontApp = NSWorkspace.shared.frontmostApplication else {
-            logger.warning("No frontmost application — cannot simulate paste")
-            return false
-        }
+    /// Posts Cmd+V into the target process. `privateState` events are not delivered
+    /// to other apps — use hidSystemState and postToPid.
+    private func postCommandV(to pid: pid_t) -> Bool {
+        guard pid > 0 else { return false }
 
-        if frontApp.bundleIdentifier == Bundle.main.bundleIdentifier {
-            logger.warning("Frontmost app is VoiceDictation itself — nowhere to paste")
-            return false
-        }
-
-        let source = CGEventSource(stateID: CGEventSourceStateID.privateState)
+        let source = CGEventSource(stateID: .hidSystemState)
 
         guard let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: true),
               let vDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true),
@@ -186,14 +208,14 @@ final class TextInserter {
             return false
         }
 
-        cmdDown.flags = CGEventFlags.maskCommand
-        vDown.flags = CGEventFlags.maskCommand
-        vUp.flags = CGEventFlags.maskCommand
+        cmdDown.flags = .maskCommand
+        vDown.flags = .maskCommand
+        vUp.flags = .maskCommand
 
-        cmdDown.post(tap: CGEventTapLocation.cghidEventTap)
-        vDown.post(tap: CGEventTapLocation.cghidEventTap)
-        vUp.post(tap: CGEventTapLocation.cghidEventTap)
-        cmdUp.post(tap: CGEventTapLocation.cghidEventTap)
+        cmdDown.postToPid(pid)
+        vDown.postToPid(pid)
+        vUp.postToPid(pid)
+        cmdUp.postToPid(pid)
 
         return true
     }

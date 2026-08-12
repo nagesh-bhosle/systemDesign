@@ -246,6 +246,9 @@ final class AppState: ObservableObject {
         rawTranscript = ""
         transcriptionProcessed = false
 
+        // Remember the focused app before our floating bar can take clicks.
+        TextInserter.shared.captureInsertionTarget()
+
         if showFloatingWindow {
             FloatingWindowController.shared.showWindow(appState: self)
         }

@@ -129,6 +129,10 @@ struct SettingsView: View {
                 ))
                 .accessibilityLabel("Clipboard only mode")
 
+                Text("When off, text is pasted at the cursor in the app you were using. Requires Accessibility permission. After rebuilding the app, re-enable Voice Dictation in System Settings → Privacy & Security → Accessibility.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
                 Toggle("Restore clipboard after paste", isOn: Binding(
                     get: { appState.restoreClipboard },
                     set: { appState.saveRestoreClipboard($0) }
