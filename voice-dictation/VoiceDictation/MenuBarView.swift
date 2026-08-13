@@ -18,6 +18,7 @@ struct MenuBarView: View {
         VStack(spacing: 14) {
             header
             primaryButton
+            undoButton
             transcriptCard
             messageArea
             floatingToggle
@@ -83,7 +84,7 @@ struct MenuBarView: View {
     private var primaryButton: some View {
         Button(action: { appState.toggleRecording() }) {
             HStack(spacing: 6) {
-                Image(systemName: appState.status == .recording ? "stop.fill" : "mic.fill")
+                Image(systemName: appState.status == .recording ? "stop.fill" : "waveform")
                 Text(appState.status == .recording ? "Stop" : "Start")
                     .fontWeight(.medium)
             }
@@ -98,6 +99,16 @@ struct MenuBarView: View {
         .foregroundColor(appState.status == .recording ? .white : .black.opacity(0.85))
         .disabled(appState.status == .transcribing || appState.status == .enhancing)
         .accessibilityLabel(appState.status == .recording ? "Stop recording" : "Start recording")
+    }
+
+    private var undoButton: some View {
+        Button("Undo last paste") {
+            appState.undoLastPaste()
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(appState.status == .recording || appState.status == .transcribing || appState.status == .enhancing)
+        .accessibilityLabel("Undo last paste")
     }
 
     // MARK: - Transcript Card

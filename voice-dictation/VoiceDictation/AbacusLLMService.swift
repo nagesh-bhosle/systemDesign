@@ -80,6 +80,7 @@ final class AbacusLLMService {
         apiKey: String,
         endpoint: String = "https://routellm.abacus.ai/v1/chat/completions",
         model: String = AbacusLLMService.defaultModel,
+        styleHint: String? = nil,
         completion: @escaping (Result<String, Error>) -> Void
     ) {
         guard let url = URL(string: endpoint) else {
@@ -92,12 +93,15 @@ final class AbacusLLMService {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let systemPrompt = """
+        var systemPrompt = """
         You are a speech-to-text cleanup assistant. The user dictated text using voice recognition. \
         Your job: remove filler words (um, uh, like, you know), fix grammar, fix punctuation, \
         and make the text clean and readable. Preserve the original meaning. \
         Return ONLY the cleaned text, nothing else. No explanations, no quotes.
         """
+        if let styleHint, !styleHint.isEmpty {
+            systemPrompt += " \(styleHint)"
+        }
 
         let body: [String: Any] = [
             "model": model,

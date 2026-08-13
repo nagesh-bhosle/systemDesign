@@ -57,6 +57,7 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
     private(set) var onDeviceFallbackMessage: String?
 
     var onPartialResult: ((String) -> Void)?
+    var onAudioLevel: ((Float) -> Void)?
 
     init(localeIdentifier: String = "en-US") {
         self.localeIdentifier = localeIdentifier
@@ -221,6 +222,7 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
         inputNode.removeTap(onBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
             self?.recognitionRequest?.append(buffer)
+            self?.publishAudioLevel(from: buffer)
         }
 
         audioEngine.prepare()
@@ -284,6 +286,23 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
     }
 
     // MARK: - Private
+
+    private func publishAudioLevel(from buffer: AVAudioPCMBuffer) {
+        guard let channelData = buffer.floatChannelData?[0] else { return }
+        let frameLength = Int(buffer.frameLength)
+        guard frameLength > 0 else { return }
+
+        var sum: Float = 0
+        for index in 0..<frameLength {
+            let sample = channelData[index]
+            sum += sample * sample
+        }
+        let rms = sqrt(sum / Float(frameLength))
+        let level = min(1.0, rms * 12)
+        DispatchQueue.main.async { [weak self] in
+            self?.onAudioLevel?(level)
+        }
+    }
 
     private func finish(with result: Result<String, Error>) {
         let shouldProceed: Bool = stateQueue.sync {

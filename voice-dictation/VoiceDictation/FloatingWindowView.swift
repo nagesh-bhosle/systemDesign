@@ -12,7 +12,6 @@ struct FloatingWindowView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered: Bool = false
     @State private var showCopiedAnimation: Bool = false
-    @State private var isAnimatingWaveform: Bool = false
 
     private var isExpanded: Bool {
         isHovered || appState.status == .recording || appState.status == .enhancing || appState.status == .transcribing
@@ -45,15 +44,13 @@ struct FloatingWindowView: View {
             }
             updatePanelSize()
         }
-        .onChange(of: appState.status) { _, newStatus in
-            isAnimatingWaveform = (newStatus == .recording)
+        .onChange(of: appState.status) { _, _ in
             updatePanelSize()
         }
         .onChange(of: isHovered) { _, _ in
             updatePanelSize()
         }
         .onAppear {
-            isAnimatingWaveform = (appState.status == .recording)
             updatePanelSize()
         }
     }
@@ -64,18 +61,16 @@ struct FloatingWindowView: View {
     private var statusIndicator: some View {
         if appState.status == .recording {
             HStack(spacing: 2) {
-                ForEach(0..<4, id: \.self) { i in
+                ForEach(0..<4, id: \.self) { index in
+                    let floor: CGFloat = 0.25
+                    let scale = reduceMotion
+                        ? 0.6
+                        : floor + CGFloat(appState.audioLevel) * (0.4 + CGFloat(index % 3) * 0.15)
                     RoundedRectangle(cornerRadius: 1)
                         .fill(Color.red)
                         .frame(width: 2.5, height: 10)
-                        .scaleEffect(y: isAnimatingWaveform && !reduceMotion ? 1.0 : 0.3)
-                        .animation(
-                            reduceMotion ? nil :
-                                .easeInOut(duration: 0.35)
-                                .repeatForever(autoreverses: true)
-                                .delay(Double(i) * 0.12),
-                            value: isAnimatingWaveform
-                        )
+                        .scaleEffect(y: scale)
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: appState.audioLevel)
                 }
             }
             .frame(width: isExpanded ? nil : 36, height: 36)
@@ -89,7 +84,21 @@ struct FloatingWindowView: View {
 
     @ViewBuilder
     private var expandedContent: some View {
-        if !appState.liveTranscript.isEmpty {
+        if appState.status == .recording {
+            HStack(spacing: 8) {
+                Text(appState.recordingDuration)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.secondary)
+                if !appState.liveTranscript.isEmpty {
+                    Text(appState.liveTranscript)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else if !appState.liveTranscript.isEmpty {
             Text(appState.liveTranscript)
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundColor(.primary)
@@ -117,7 +126,7 @@ struct FloatingWindowView: View {
     private var actionButtons: some View {
         HStack(spacing: 4) {
             Button(action: { appState.toggleRecording() }) {
-                Image(systemName: appState.status == .recording ? "stop.fill" : "mic.fill")
+                Image(systemName: appState.status == .recording ? "stop.fill" : "waveform")
                     .font(.system(size: 12))
                     .foregroundColor(appState.status == .recording ? .red : AppTheme.accent)
                     .frame(width: 24, height: 24)

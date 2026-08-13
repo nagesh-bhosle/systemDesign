@@ -28,6 +28,9 @@ enum UserDefaultsKey {
     static let restoreClipboard = "restoreClipboard"
     static let hasCompletedOnboarding = "hasCompletedOnboarding"
     static let launchAtLogin = "launchAtLogin"
+    static let playSounds = "playSounds"
+    static let historyRetentionDays = "historyRetentionDays"
+    static let customVocabulary = "customVocabulary"
 }
 
 @MainActor
@@ -55,7 +58,17 @@ final class AppState: ObservableObject {
     @Published var accessibilityGranted: Bool = false
     @Published var llmModel: String = UserDefaults.standard.string(forKey: "llmModel") ?? AbacusLLMService.defaultModel
     @Published var llmEndpoint: String = UserDefaults.standard.string(forKey: "llmEndpoint") ?? "https://routellm.abacus.ai/v1/chat/completions"
-    @Published var history: [TranscriptEntry] = TranscriptHistory.shared.loadHistory()
+    @Published var playSounds: Bool = UserDefaults.standard.object(forKey: UserDefaultsKey.playSounds) as? Bool ?? true
+    @Published var pushToTalkEnabled: Bool = HotkeyPreferences.loadPushToTalk()
+    @Published var hotkeyKeyCode: UInt32 = HotkeyPreferences.loadKeyCode()
+    @Published var hotkeyModifiers: UInt32 = HotkeyPreferences.loadModifiers()
+    @Published var hotkeyRecordError: String = ""
+    @Published var isRecordingHotkey: Bool = false
+    @Published var historyRetentionDays: Int = UserDefaults.standard.object(forKey: UserDefaultsKey.historyRetentionDays) as? Int ?? 30
+    @Published var customVocabulary: String = UserDefaults.standard.string(forKey: UserDefaultsKey.customVocabulary) ?? ""
+    @Published var recordingDuration: String = "0:00"
+    @Published var audioLevel: Double = 0
+    @Published var history: [TranscriptEntry] = []
 
     static var shared: AppState?
 
@@ -67,8 +80,8 @@ final class AppState: ObservableObject {
 
     var statusIcon: String {
         switch status {
-        case .idle: return "mic.fill"
-        case .recording: return "mic.circle.fill"
+        case .idle: return "waveform"
+        case .recording: return "waveform.circle.fill"
         case .transcribing: return "waveform.circle.fill"
         case .enhancing: return "sparkles"
         case .error: return "exclamationmark.triangle.fill"
@@ -79,6 +92,7 @@ final class AppState: ObservableObject {
          llmService: AbacusLLMService = AbacusLLMService()) {
         self.speechRecognizer = speechRecognizer
         self.llmService = llmService
+        history = TranscriptHistory.shared.loadHistory(retentionDays: historyRetentionDays)
         syncTextInserterPreferences()
         speechRecognizer.updateConfiguration(
             localeIdentifier: speechLocale,
@@ -157,6 +171,64 @@ final class AppState: ObservableObject {
         UserDefaults.standard.set(endpoint, forKey: "llmEndpoint")
     }
 
+    func savePlaySounds(_ enabled: Bool) {
+        playSounds = enabled
+        UserDefaults.standard.set(enabled, forKey: UserDefaultsKey.playSounds)
+    }
+
+    func savePushToTalk(_ enabled: Bool) {
+        pushToTalkEnabled = enabled
+        HotkeyPreferences.savePushToTalk(enabled)
+        HotkeyManager.shared.updateConfiguration(
+            keyCode: hotkeyKeyCode,
+            modifiers: hotkeyModifiers,
+            pushToTalk: enabled
+        )
+    }
+
+    func saveHistoryRetentionDays(_ days: Int) {
+        historyRetentionDays = days
+        UserDefaults.standard.set(days, forKey: UserDefaultsKey.historyRetentionDays)
+        history = TranscriptHistory.shared.sortEntries(
+            TranscriptHistory.shared.applyRetention(history, retentionDays: days)
+        )
+        TranscriptHistory.shared.saveHistory(history, retentionDays: days)
+    }
+
+    func saveCustomVocabulary(_ text: String) {
+        customVocabulary = text
+        UserDefaults.standard.set(text, forKey: UserDefaultsKey.customVocabulary)
+    }
+
+    func applyRecordedHotkey(keyCode: UInt32, modifiers: UInt32) -> Bool {
+        hotkeyRecordError = ""
+
+        guard HotkeyManager.canRegister(keyCode: keyCode, modifiers: modifiers) else {
+            hotkeyRecordError = "That shortcut is already in use. Keeping your current shortcut."
+            return false
+        }
+
+        HotkeyPreferences.save(keyCode: keyCode, modifiers: modifiers)
+        hotkeyKeyCode = keyCode
+        hotkeyModifiers = modifiers
+
+        HotkeyManager.shared.updateConfiguration(
+            keyCode: keyCode,
+            modifiers: modifiers,
+            pushToTalk: pushToTalkEnabled
+        )
+
+        if !HotkeyManager.shared.reregister() {
+            hotkeyRecordError = "Could not register the new shortcut. Keeping your previous shortcut."
+            hotkeyKeyCode = HotkeyPreferences.loadKeyCode()
+            hotkeyModifiers = HotkeyPreferences.loadModifiers()
+            HotkeyManager.shared.reregister()
+            return false
+        }
+
+        return true
+    }
+
     func completeOnboarding() {
         UserDefaults.standard.set(true, forKey: UserDefaultsKey.hasCompletedOnboarding)
         showOnboarding = false
@@ -190,6 +262,25 @@ final class AppState: ObservableObject {
         accessibilityGranted = PermissionHelper.accessibilityStatus()
     }
 
+    // MARK: - Hotkey handlers
+
+    func handleHotkeyDown() {
+        guard pushToTalkEnabled else { return }
+        switch status {
+        case .idle, .error:
+            startRecording()
+        default:
+            break
+        }
+    }
+
+    func handleHotkeyUp() {
+        guard pushToTalkEnabled else { return }
+        if status == .recording {
+            stopRecording()
+        }
+    }
+
     // MARK: - Recording
 
     func toggleRecording() {
@@ -203,11 +294,13 @@ final class AppState: ObservableObject {
             status = .idle
             clearMessages()
             liveTranscript = ""
+            stopRecordingTimer()
         case .enhancing:
             llmService.cancel()
             llmTimedOut = true
             status = .idle
             clearMessages()
+            stopRecordingTimer()
         }
     }
 
@@ -219,6 +312,8 @@ final class AppState: ObservableObject {
     private var isStartingRecording: Bool = false
     private var errorClearTask: Task<Void, Never>?
     private var llmTimeoutTask: Task<Void, Never>?
+    private var recordingTimerTask: Task<Void, Never>?
+    private var recordingStartedAt: Date?
 
     func toggleFloatingWindow() {
         if FloatingWindowController.shared.isVisible {
@@ -230,11 +325,37 @@ final class AppState: ObservableObject {
         }
     }
 
+    func undoLastPaste() {
+        switch TextInserter.shared.undoLastPaste() {
+        case .undone:
+            setStatusMessage("Undid last paste")
+        case .nothingToUndo:
+            setStatusMessage("Nothing to undo")
+        case .failed:
+            setError("Could not undo in the target app")
+        }
+    }
+
+    func pasteHistoryEntry(_ entry: TranscriptEntry) {
+        TextInserter.shared.pasteHistoryEntry(entry.text) { [weak self] result in
+            Task { @MainActor in
+                if result == .needsAccessibilityRefresh {
+                    self?.setError("Auto-paste needs a refresh: System Settings → Privacy & Security → Accessibility → uncheck Voice Dictation, then check it again.")
+                }
+            }
+        }
+    }
+
+    func togglePinHistoryEntry(_ entry: TranscriptEntry) {
+        guard let index = history.firstIndex(where: { $0.id == entry.id }) else { return }
+        history[index].isPinned.toggle()
+        history = TranscriptHistory.shared.sortEntries(history)
+        TranscriptHistory.shared.saveHistory(history, retentionDays: historyRetentionDays)
+    }
+
     private func startRecording() {
         guard !isStartingRecording else { return }
 
-        // Only block when the user already denied; .notDetermined still goes through
-        // requestAuthorization so macOS can show the system prompt.
         if PermissionHelper.isMicrophoneDenied || PermissionHelper.isSpeechDenied {
             presentOnboarding()
             return
@@ -245,8 +366,8 @@ final class AppState: ObservableObject {
         liveTranscript = ""
         rawTranscript = ""
         transcriptionProcessed = false
+        audioLevel = 0
 
-        // Remember the focused app before our floating bar can take clicks.
         TextInserter.shared.captureInsertionTarget()
 
         if showFloatingWindow {
@@ -254,6 +375,17 @@ final class AppState: ObservableObject {
         }
 
         status = .recording
+        startRecordingTimer()
+
+        if playSounds {
+            SoundPlayer.shared.playRecordingStart()
+        }
+
+        speechRecognizer.onAudioLevel = { [weak self] level in
+            Task { @MainActor in
+                self?.audioLevel = Double(level)
+            }
+        }
 
         speechRecognizer.requestAuthorization { [weak self] result in
             guard let self = self else { return }
@@ -262,6 +394,7 @@ final class AppState: ObservableObject {
 
                 guard result.isGranted else {
                     self.status = .idle
+                    self.stopRecordingTimer()
                     self.presentOnboarding()
                     if let message = result.errorMessage {
                         self.setError(message)
@@ -313,9 +446,16 @@ final class AppState: ObservableObject {
             isStartingRecording = false
             status = .idle
             liveTranscript = ""
+            stopRecordingTimer()
             return
         }
 
+        if playSounds {
+            SoundPlayer.shared.playRecordingStop()
+        }
+
+        stopRecordingTimer()
+        audioLevel = 0
         status = .transcribing
         liveTranscript = ""
         speechRecognizer.stopRecognition()
@@ -334,7 +474,8 @@ final class AppState: ObservableObject {
     }
 
     private func processTranscript(_ text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let vocabularyApplied = applyCustomVocabulary(to: text)
+        let trimmed = vocabularyApplied.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmed.isEmpty else {
             status = .idle
@@ -353,6 +494,8 @@ final class AppState: ObservableObject {
         llmTimedOut = false
         llmTimeoutTask?.cancel()
 
+        let styleHint = toneStyleHint(for: TextInserter.shared.targetBundleIdentifier)
+
         llmTimeoutTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(AbacusLLMService.requestTimeout * 1_000_000_000))
             guard !Task.isCancelled else { return }
@@ -363,7 +506,13 @@ final class AppState: ObservableObject {
             self.finishWithText(trimmed, errorNote: "LLM cleanup timed out (used raw text)")
         }
 
-        llmService.enhanceText(text: trimmed, apiKey: apiKey, endpoint: llmEndpoint, model: llmModel) { result in
+        llmService.enhanceText(
+            text: trimmed,
+            apiKey: apiKey,
+            endpoint: llmEndpoint,
+            model: llmModel,
+            styleHint: styleHint
+        ) { result in
             Task { @MainActor in
                 guard !self.llmTimedOut else { return }
 
@@ -381,6 +530,51 @@ final class AppState: ObservableObject {
                 }
             }
         }
+    }
+
+    func toneStyleHint(for bundleId: String?) -> String? {
+        guard let bundleId = bundleId?.lowercased() else { return nil }
+        if bundleId == "com.apple.mail" {
+            return "Use a professional, formal email tone."
+        }
+        if bundleId.contains("slack") || bundleId.contains("messages") {
+            return "Use a casual, conversational chat tone."
+        }
+        return nil
+    }
+
+    func applyCustomVocabulary(to text: String) -> String {
+        let items = customVocabulary
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .sorted { $0.count > $1.count }
+
+        guard !items.isEmpty else { return text }
+
+        var result = text
+        for item in items {
+            let escaped = NSRegularExpression.escapedPattern(for: item)
+            let spacedPattern = escaped.replacingOccurrences(of: "\\ ", with: "\\s+")
+            let patterns = [
+                "(?i)\\b\(escaped)\\b",
+                "(?i)\(spacedPattern)"
+            ]
+            for pattern in patterns {
+                guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+                let range = NSRange(result.startIndex..., in: result)
+                result = regex.stringByReplacingMatches(in: result, range: range, withTemplate: item)
+            }
+            let collapsed = item.replacingOccurrences(of: " ", with: "")
+            if collapsed != item {
+                let collapsedEscaped = NSRegularExpression.escapedPattern(for: collapsed)
+                if let regex = try? NSRegularExpression(pattern: "(?i)\\b\(collapsedEscaped)\\b") {
+                    let range = NSRange(result.startIndex..., in: result)
+                    result = regex.stringByReplacingMatches(in: result, range: range, withTemplate: item)
+                }
+            }
+        }
+        return result
     }
 
     private func finishWithText(_ text: String, errorNote: String? = nil) {
@@ -406,30 +600,57 @@ final class AppState: ObservableObject {
 
     private func hideFloatingWindow() {
         if showFloatingWindow {
-            // Keep visible if user wants floating bar — only hide during processing end if they closed it
+            // Keep visible if user wants floating bar
         }
-        // Don't auto-hide — user controls via preference
     }
 
     private func saveToHistory(text: String) {
         guard saveHistoryEnabled else { return }
+        if FocusedFieldInspector.isFocusedFieldSecure() { return }
         if let first = history.first, first.text == text { return }
         let entry = TranscriptEntry(text: text, timestamp: Date())
         history.insert(entry, at: 0)
+        history = TranscriptHistory.shared.sortEntries(history)
         if history.count > 100 {
-            history.removeLast()
+            history = Array(history.prefix(100))
         }
-        TranscriptHistory.shared.saveHistory(history)
+        TranscriptHistory.shared.saveHistory(history, retentionDays: historyRetentionDays)
     }
 
     func deleteHistoryEntry(_ entry: TranscriptEntry) {
         history.removeAll { $0.id == entry.id }
-        TranscriptHistory.shared.saveHistory(history)
+        TranscriptHistory.shared.saveHistory(history, retentionDays: historyRetentionDays)
     }
 
     func clearAllHistory() {
         TranscriptHistory.shared.clearHistory()
         history = []
+    }
+
+    // MARK: - Recording timer
+
+    private func startRecordingTimer() {
+        recordingStartedAt = Date()
+        recordingDuration = "0:00"
+        recordingTimerTask?.cancel()
+        recordingTimerTask = Task { @MainActor in
+            while !Task.isCancelled, self.status == .recording {
+                if let started = self.recordingStartedAt {
+                    let elapsed = Int(Date().timeIntervalSince(started))
+                    let minutes = elapsed / 60
+                    let seconds = elapsed % 60
+                    self.recordingDuration = String(format: "%d:%02d", minutes, seconds)
+                }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
+    }
+
+    private func stopRecordingTimer() {
+        recordingTimerTask?.cancel()
+        recordingTimerTask = nil
+        recordingStartedAt = nil
+        recordingDuration = "0:00"
     }
 
     // MARK: - Messages

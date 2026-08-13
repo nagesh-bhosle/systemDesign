@@ -6,6 +6,8 @@
 //
 
 import SwiftUI
+import AppKit
+import Carbon.HIToolbox
 
 enum AvailableModels {
     static let models: [(name: String, label: String, cost: String)] = [
@@ -50,6 +52,9 @@ struct SettingsView: View {
     @State private var showKeySaved = false
     @State private var showKeyDeleted = false
     @State private var showEndpointSaved = false
+    @State private var vocabularyDraft: String = ""
+    @State private var hotkeyMonitor: Any?
+    @State private var showPrivacySheet = false
 
     enum APIKeyStatus {
         case unknown, connected, failed
@@ -83,9 +88,16 @@ struct SettingsView: View {
         .tint(AppTheme.accent)
         .onAppear {
             endpointDraft = appState.llmEndpoint
+            vocabularyDraft = appState.customVocabulary
             if !appState.apiKey.isEmpty {
                 apiKeyStatus = .unknown
             }
+        }
+        .onDisappear {
+            stopHotkeyRecording()
+        }
+        .sheet(isPresented: $showPrivacySheet) {
+            PrivacyPolicySheet()
         }
     }
 
@@ -107,11 +119,58 @@ struct SettingsView: View {
 
             Section("Global Hotkey") {
                 HStack {
-                    Text("Toggle Recording")
+                    Text("Shortcut")
                     Spacer()
-                    HotkeyKeycapsView()
+                    HotkeyKeycapsView(
+                        keyCode: appState.hotkeyKeyCode,
+                        modifiers: appState.hotkeyModifiers
+                    )
                 }
-                Text("Press the hotkey anywhere to start and stop recording.")
+
+                Button(appState.isRecordingHotkey ? "Press keys..." : "Record shortcut") {
+                    if appState.isRecordingHotkey {
+                        stopHotkeyRecording()
+                    } else {
+                        startHotkeyRecording()
+                    }
+                }
+                .disabled(appState.status == .recording)
+
+                if !appState.hotkeyRecordError.isEmpty {
+                    Text(appState.hotkeyRecordError)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+
+                Toggle("Push-to-talk (hold to record)", isOn: Binding(
+                    get: { appState.pushToTalkEnabled },
+                    set: { appState.savePushToTalk($0) }
+                ))
+                .accessibilityLabel("Push to talk mode")
+
+                Text(appState.pushToTalkEnabled
+                     ? "Hold the shortcut to record; release to stop and transcribe."
+                     : "Press the shortcut to start and stop recording.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Section("Sounds") {
+                Toggle("Play start/stop sounds", isOn: Binding(
+                    get: { appState.playSounds },
+                    set: { appState.savePlaySounds($0) }
+                ))
+                .accessibilityLabel("Play recording sounds")
+            }
+
+            Section("Custom Vocabulary") {
+                TextEditor(text: $vocabularyDraft)
+                    .font(.body)
+                    .frame(minHeight: 72)
+                    .onChange(of: vocabularyDraft) { _, newValue in
+                        appState.saveCustomVocabulary(newValue)
+                    }
+                Text("One word or phrase per line. Matching is case-insensitive; pasted text uses your capitalization.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -203,6 +262,10 @@ struct SettingsView: View {
                 .disabled(appState.apiKey.isEmpty)
                 .accessibilityLabel("Enable LLM text cleanup")
 
+                Text("Tone adapts for Mail vs chat when cleanup is on.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
                 if appState.apiKey.isEmpty {
                     Text("Enter an API key above to enable LLM cleanup.")
                         .font(.caption).foregroundColor(.secondary)
@@ -287,6 +350,20 @@ struct SettingsView: View {
                     set: { appState.saveHistoryPreference($0) }
                 ))
                 .accessibilityLabel("Save transcript history")
+
+                Picker("Retention", selection: Binding(
+                    get: { appState.historyRetentionDays },
+                    set: { appState.saveHistoryRetentionDays($0) }
+                )) {
+                    Text("7 days").tag(7)
+                    Text("30 days").tag(30)
+                    Text("Forever").tag(0)
+                }
+                .accessibilityLabel("History retention")
+
+                Text("History is encrypted on disk and excluded from Time Machine backups when possible.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -297,18 +374,94 @@ struct SettingsView: View {
     private var aboutSection: some View {
         Form {
             Section("Voice Dictation") {
-                Text("Version 0.2.0")
+                Text("Version 0.3.0")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Text("Speech recognition runs on your Mac. Press the global hotkey to start and stop dictation. Text is pasted at your cursor or copied to the clipboard.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                Text("Auto-paste requires Accessibility permission. After rebuilding the app, uncheck and recheck Voice Dictation in System Settings → Privacy & Security → Accessibility.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text("Undo last paste uses Cmd+Z in the target app.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
                 Text("Optional LLM cleanup sends text (not audio) to Abacus AI.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+
+                HStack {
+                    Button("Privacy") {
+                        openPrivacyPolicy()
+                    }
+                    Button("View in app") {
+                        showPrivacySheet = true
+                    }
+                }
             }
         }
         .formStyle(.grouped)
+    }
+
+    // MARK: - Hotkey recording
+
+    private func startHotkeyRecording() {
+        appState.isRecordingHotkey = true
+        appState.hotkeyRecordError = ""
+        hotkeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let modifiers = carbonModifiers(from: event.modifierFlags)
+            let keyCode = UInt32(event.keyCode)
+
+            if keyCode == UInt32(kVK_Escape) {
+                stopHotkeyRecording()
+                return nil
+            }
+
+            guard modifiers != 0 || isFunctionKey(keyCode) else {
+                return nil
+            }
+
+            _ = appState.applyRecordedHotkey(keyCode: keyCode, modifiers: modifiers)
+            stopHotkeyRecording()
+            return nil
+        }
+    }
+
+    private func stopHotkeyRecording() {
+        appState.isRecordingHotkey = false
+        if let hotkeyMonitor {
+            NSEvent.removeMonitor(hotkeyMonitor)
+            self.hotkeyMonitor = nil
+        }
+    }
+
+    private func carbonModifiers(from flags: NSEvent.ModifierFlags) -> UInt32 {
+        var modifiers: UInt32 = 0
+        if flags.contains(.command) { modifiers |= UInt32(cmdKey) }
+        if flags.contains(.option) { modifiers |= UInt32(optionKey) }
+        if flags.contains(.control) { modifiers |= UInt32(controlKey) }
+        if flags.contains(.shift) { modifiers |= UInt32(shiftKey) }
+        return modifiers
+    }
+
+    private func isFunctionKey(_ keyCode: UInt32) -> Bool {
+        keyCode >= UInt32(kVK_F1) && keyCode <= UInt32(kVK_F20)
+    }
+
+    private func openPrivacyPolicy() {
+        if let bundled = Bundle.main.url(forResource: "PRIVACY", withExtension: "md") {
+            NSWorkspace.shared.open(bundled)
+            return
+        }
+        let devPath = URL(fileURLWithPath: #file)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("PRIVACY.md")
+        if FileManager.default.fileExists(atPath: devPath.path) {
+            NSWorkspace.shared.open(devPath)
+        } else {
+            showPrivacySheet = true
+        }
     }
 
     // MARK: - API Key Status
@@ -394,13 +547,17 @@ struct SettingsView: View {
 // MARK: - Hotkey Keycaps
 
 struct HotkeyKeycapsView: View {
+    let keyCode: UInt32
+    let modifiers: UInt32
+
     var body: some View {
         HStack(spacing: 4) {
-            KeycapView(label: "⌥")
-            KeycapView(label: "⇧")
-            KeycapView(label: "Space")
+            ForEach(HotkeyDisplay.modifierLabels(modifiers), id: \.self) { label in
+                KeycapView(label: label)
+            }
+            KeycapView(label: HotkeyDisplay.keyLabel(keyCode))
         }
-        .accessibilityLabel("Option Shift Space")
+        .accessibilityLabel(HotkeyDisplay.label(keyCode: keyCode, modifiers: modifiers))
     }
 }
 
@@ -417,5 +574,43 @@ struct KeycapView: View {
                     .fill(Color.primary.opacity(0.06))
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(AppTheme.hairlineBorder, lineWidth: 1))
             )
+    }
+}
+
+// MARK: - Privacy policy sheet
+
+struct PrivacyPolicySheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var policyText: String = "Loading..."
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Privacy Policy")
+                    .font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }
+            }
+            ScrollView {
+                Text(policyText)
+                    .font(.body)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding()
+        .frame(width: 480, height: 420)
+        .onAppear {
+            if let bundled = Bundle.main.url(forResource: "PRIVACY", withExtension: "md"),
+               let text = try? String(contentsOf: bundled, encoding: .utf8) {
+                policyText = text
+            } else {
+                let devPath = URL(fileURLWithPath: #file)
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("PRIVACY.md")
+                policyText = (try? String(contentsOf: devPath, encoding: .utf8)) ?? "Privacy policy unavailable."
+            }
+        }
     }
 }

@@ -31,8 +31,7 @@ struct VoiceDictationApp: App {
                     .foregroundColor(.red)
                     .accessibilityLabel("Voice Dictation error")
             } else {
-                Image(systemName: "mic.fill")
-                    .accessibilityLabel("Voice Dictation")
+                MenuBarIdleIcon()
             }
         }
         .menuBarExtraStyle(.window)

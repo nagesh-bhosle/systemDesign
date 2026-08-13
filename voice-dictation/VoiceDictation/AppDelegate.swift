@@ -13,12 +13,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: "com.nagesh.voicedictation", category: "AppDelegate")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        HotkeyManager.shared.updateConfiguration(
+            keyCode: HotkeyPreferences.loadKeyCode(),
+            modifiers: HotkeyPreferences.loadModifiers(),
+            pushToTalk: HotkeyPreferences.loadPushToTalk()
+        )
+
         if !HotkeyManager.shared.registerHotkey() {
             logger.error("Failed to register global hotkey — possible conflict with another app")
             DispatchQueue.main.async {
                 let alert = NSAlert()
                 alert.messageText = "Hotkey Registration Failed"
-                alert.informativeText = "Voice Dictation could not register ⌥⇧Space. Another app may be using this shortcut. You can still start and stop recording from the menu bar. Settings are also available from the menu bar icon."
+                alert.informativeText = "Voice Dictation could not register \(HotkeyDisplay.label(keyCode: HotkeyPreferences.loadKeyCode(), modifiers: HotkeyPreferences.loadModifiers())). Another app may be using this shortcut. You can still start and stop recording from the menu bar."
                 alert.alertStyle = .warning
                 alert.addButton(withTitle: "OK")
                 alert.runModal()

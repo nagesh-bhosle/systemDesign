@@ -15,10 +15,11 @@ struct HistoryView: View {
     @State private var copiedEntryID: UUID?
 
     var filteredHistory: [TranscriptEntry] {
+        let base = appState.history
         if searchText.isEmpty {
-            return appState.history
+            return base
         }
-        return appState.history.filter { entry in
+        return base.filter { entry in
             entry.text.localizedCaseInsensitiveContains(searchText)
         }
     }
@@ -47,6 +48,8 @@ struct HistoryView: View {
                                 entry: entry,
                                 isCopied: copiedEntryID == entry.id,
                                 onCopy: { copyEntry(entry) },
+                                onPaste: { appState.pasteHistoryEntry(entry) },
+                                onTogglePin: { appState.togglePinHistoryEntry(entry) },
                                 onDelete: { appState.deleteHistoryEntry(entry) }
                             )
                         }
@@ -131,15 +134,31 @@ struct HistoryRow: View {
     let entry: TranscriptEntry
     let isCopied: Bool
     let onCopy: () -> Void
+    let onPaste: () -> Void
+    let onTogglePin: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
+                if entry.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.caption2)
+                        .foregroundColor(AppTheme.accent)
+                }
                 Text(entry.relativeTime)
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Spacer()
+                Button(action: onPaste) {
+                    Image(systemName: "text.cursor")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Paste at cursor")
+                .accessibilityLabel("Paste at cursor")
+
                 Button(action: onCopy) {
                     Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
                         .font(.caption)
@@ -147,6 +166,14 @@ struct HistoryRow: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Copy transcript")
+
+                Button(action: onTogglePin) {
+                    Image(systemName: entry.isPinned ? "pin.slash" : "pin")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(entry.isPinned ? "Unpin transcript" : "Pin transcript")
 
                 Button(action: onDelete) {
                     Image(systemName: "trash")
