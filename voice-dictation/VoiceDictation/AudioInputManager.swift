@@ -2,15 +2,14 @@
 //  AudioInputManager.swift
 //  VoiceDictation
 //
-//  Lists capture devices and applies a selected mic to an AVAudioInputNode
-//  without changing the Mac's system-wide default input.
+//  Lists input devices and the system default mic. Dictation never force-switches
+//  the hardware device (that disconnects Bluetooth headsets).
 //
 
 import Foundation
 import AVFoundation
 import CoreAudio
-import AudioToolbox
-import CoreMedia
+import AppKit
 import os
 
 struct AudioInputDevice: Identifiable, Hashable {
@@ -40,27 +39,15 @@ enum AudioInputManager {
             ?? coreAudioDefaultUID()
     }
 
-    static func applyToInputNode(uid: String, inputNode: AVAudioInputNode) {
-        guard !uid.isEmpty else { return }
-        guard let deviceID = coreAudioDeviceID(forUID: uid) else {
-            logger.info("No Core Audio device for UID \(uid, privacy: .public)")
-            return
-        }
-        guard let audioUnit = inputNode.audioUnit else {
-            logger.warning("Input node has no audio unit yet")
-            return
-        }
-        var id = deviceID
-        let status = AudioUnitSetProperty(
-            audioUnit,
-            kAudioOutputUnitProperty_CurrentDevice,
-            kAudioUnitScope_Global,
-            0,
-            &id,
-            UInt32(MemoryLayout<AudioDeviceID>.size)
-        )
-        if status != noErr {
-            logger.warning("Could not set input device: \(status)")
+    static func openSoundSettings() {
+        let urls = [
+            "x-apple.systempreferences:com.apple.Sound-Settings.extension",
+            "x-apple.systempreferences:com.apple.preference.sound"
+        ]
+        for string in urls {
+            if let url = URL(string: string), NSWorkspace.shared.open(url) {
+                return
+            }
         }
     }
 
@@ -137,33 +124,6 @@ enum AudioInputManager {
         return stringProperty(deviceID, kAudioDevicePropertyDeviceUID)
     }
 
-    private static func coreAudioDeviceID(forUID uid: String) -> AudioDeviceID? {
-        coreAudioInputDevicesUnfiltered().first(where: { $0.uid == uid })?.deviceID
-    }
-
-    private static func coreAudioInputDevicesUnfiltered() -> [(uid: String, deviceID: AudioDeviceID)] {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDevices,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        let system = AudioObjectID(kAudioObjectSystemObject)
-        var dataSize: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &dataSize) == noErr else {
-            return []
-        }
-        let count = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
-        var ids = [AudioDeviceID](repeating: 0, count: count)
-        guard AudioObjectGetPropertyData(system, &address, 0, nil, &dataSize, &ids) == noErr else {
-            return []
-        }
-        return ids.compactMap { id in
-            guard inputChannelCount(id) > 0 else { return nil }
-            let uid = stringProperty(id, kAudioDevicePropertyDeviceUID) ?? "\(id)"
-            return (uid, id)
-        }
-    }
-
     private static func inputChannelCount(_ deviceID: AudioDeviceID) -> Int {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyStreamConfiguration,
@@ -201,76 +161,61 @@ enum AudioInputManager {
     }
 }
 
-/// Level meter via AVCaptureSession so we never call AVAudioEngine.prepare().
-final class MicrophoneTester: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
-    private let session = AVCaptureSession()
-    private let output = AVCaptureAudioDataOutput()
-    private let queue = DispatchQueue(label: "com.nagesh.voicedictation.mic-test")
-    private var configured = false
+/// Level meter using AVAudioRecorder on the system default input.
+/// Does not steal Bluetooth headsets (no AVCaptureSession / no device switching).
+final class MicrophoneTester {
+    private var recorder: AVAudioRecorder?
+    private var timer: Timer?
+    private var fileURL: URL?
     var onLevel: ((Float) -> Void)?
+    private(set) var isActive = false
 
-    func start(deviceUID: String?) throws {
+    func start() throws {
         stop()
 
-        session.beginConfiguration()
-        session.inputs.forEach { session.removeInput($0) }
-        if session.outputs.contains(output) {
-            session.removeOutput(output)
-        }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voicedictation-mic-test-\(UUID().uuidString).caf")
+        let settings: [String: Any] = [
+            AVFormatIDKey: Int(kAudioFormatLinearPCM),
+            AVSampleRateKey: 44100,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false
+        ]
 
-        let device: AVCaptureDevice
-        if let deviceUID, !deviceUID.isEmpty, let match = AVCaptureDevice(uniqueID: deviceUID) {
-            device = match
-        } else if let fallback = AVCaptureDevice.default(for: .audio) {
-            device = fallback
-        } else {
-            session.commitConfiguration()
-            throw SpeechRecognizerError.invalidAudioFormat
-        }
-
-        let input = try AVCaptureDeviceInput(device: device)
-        guard session.canAddInput(input) else {
-            session.commitConfiguration()
+        let recorder = try AVAudioRecorder(url: url, settings: settings)
+        recorder.isMeteringEnabled = true
+        guard recorder.prepareToRecord(), recorder.record() else {
             throw SpeechRecognizerError.microphoneBusy
         }
-        session.addInput(input)
 
-        output.setSampleBufferDelegate(self, queue: queue)
-        if session.canAddOutput(output) {
-            session.addOutput(output)
+        self.recorder = recorder
+        self.fileURL = url
+        isActive = true
+        timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            guard let self, let recorder = self.recorder else { return }
+            recorder.updateMeters()
+            let db = recorder.averagePower(forChannel: 0)
+            let level = max(0, min(1, (db + 55) / 55))
+            self.onLevel?(level)
         }
-        session.commitConfiguration()
-        configured = true
-
-        queue.async { [weak self] in
-            self?.session.startRunning()
+        if let timer {
+            RunLoop.main.add(timer, forMode: .common)
         }
     }
 
     func stop() {
-        output.setSampleBufferDelegate(nil, queue: nil)
-        if session.isRunning {
-            session.stopRunning()
+        timer?.invalidate()
+        timer = nil
+        recorder?.stop()
+        recorder = nil
+        isActive = false
+        if let fileURL {
+            try? FileManager.default.removeItem(at: fileURL)
         }
-        session.beginConfiguration()
-        session.inputs.forEach { session.removeInput($0) }
-        if session.outputs.contains(output) {
-            session.removeOutput(output)
-        }
-        session.commitConfiguration()
-        configured = false
+        fileURL = nil
         onLevel?(0)
-    }
-
-    func captureOutput(
-        _ output: AVCaptureOutput,
-        didOutput sampleBuffer: CMSampleBuffer,
-        from connection: AVCaptureConnection
-    ) {
-        let level = AudioLevel.rms(from: sampleBuffer)
-        DispatchQueue.main.async { [weak self] in
-            self?.onLevel?(level)
-        }
     }
 }
 
@@ -291,40 +236,6 @@ enum AudioLevel {
             return min(1, sqrt(sum / Float(frames)) * 16)
         }
         return 0
-    }
-
-    static func rms(from sampleBuffer: CMSampleBuffer) -> Float {
-        guard let block = CMSampleBufferGetDataBuffer(sampleBuffer) else { return 0 }
-        var length = 0
-        var dataPointer: UnsafeMutablePointer<Int8>?
-        let status = CMBlockBufferGetDataPointer(
-            block,
-            atOffset: 0,
-            lengthAtOffsetOut: nil,
-            totalLengthOut: &length,
-            dataPointerOut: &dataPointer
-        )
-        guard status == kCMBlockBufferNoErr, let dataPointer, length > 1 else { return 0 }
-
-        let asbd = CMSampleBufferGetFormatDescription(sampleBuffer)
-            .flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee }
-
-        if let asbd, asbd.mFormatFlags & kAudioFormatFlagIsFloat != 0 {
-            let count = length / MemoryLayout<Float>.size
-            return dataPointer.withMemoryRebound(to: Float.self, capacity: count) { ptr in
-                normalizedRMS(samples: ptr, count: count, scale: 16)
-            }
-        }
-
-        let count = length / MemoryLayout<Int16>.size
-        return dataPointer.withMemoryRebound(to: Int16.self, capacity: count) { ptr in
-            var sum: Float = 0
-            for index in 0..<count {
-                let sample = Float(ptr[index]) / Float(Int16.max)
-                sum += sample * sample
-            }
-            return min(1, sqrt(sum / Float(max(count, 1))) * 16)
-        }
     }
 
     private static func normalizedRMS(samples: UnsafePointer<Float>, count: Int, scale: Float) -> Float {

@@ -105,7 +105,6 @@ final class AppState: ObservableObject {
         )
         refreshPermissionState()
         refreshAudioInputs()
-        speechRecognizer.preferredInputUID = selectedInputUID
     }
 
     // MARK: - Preferences
@@ -312,7 +311,6 @@ final class AppState: ObservableObject {
                 ?? audioInputs.first?.uid
                 ?? ""
         }
-        speechRecognizer.preferredInputUID = selectedInputUID
     }
 
     var resolvedInputUID: String {
@@ -322,13 +320,15 @@ final class AppState: ObservableObject {
         return audioInputs.first?.uid ?? ""
     }
 
+    var currentInputName: String {
+        audioInputs.first(where: { $0.uid == AudioInputManager.defaultInputUID() })?.name
+            ?? audioInputs.first(where: { $0.uid == resolvedInputUID })?.name
+            ?? "System default microphone"
+    }
+
     func saveSelectedInput(_ uid: String) {
         selectedInputUID = uid
         UserDefaults.standard.set(uid, forKey: UserDefaultsKey.preferredAudioInputUID)
-        speechRecognizer.preferredInputUID = uid
-        if isMicTestRunning {
-            startMicTest()
-        }
     }
 
     func startMicTest() {
@@ -341,7 +341,6 @@ final class AppState: ObservableObject {
         isMicTestRunning = false
         micTestLevel = 0
         refreshAudioInputs()
-        speechRecognizer.preferredInputUID = resolvedInputUID
         micTester.onLevel = { [weak self] level in
             Task { @MainActor in
                 guard let self, self.micTestSession == session, self.isMicTestRunning else { return }
@@ -349,7 +348,7 @@ final class AppState: ObservableObject {
             }
         }
         do {
-            try micTester.start(deviceUID: resolvedInputUID)
+            try micTester.start()
             guard micTestSession == session else {
                 micTester.stop()
                 return
@@ -363,6 +362,11 @@ final class AppState: ObservableObject {
     }
 
     func stopMicTest() {
+        guard isMicTestRunning || micTester.isActive else {
+            micTestSession += 1
+            micTestLevel = 0
+            return
+        }
         micTestSession += 1
         isMicTestRunning = false
         micTestLevel = 0
@@ -429,8 +433,9 @@ final class AppState: ObservableObject {
             return
         }
 
-        stopMicTest()
-        speechRecognizer.resetSession()
+        if isMicTestRunning {
+            stopMicTest()
+        }
         isStartingRecording = true
         clearMessages()
         liveTranscript = ""
@@ -470,10 +475,6 @@ final class AppState: ObservableObject {
 
                 guard self.status == .recording else { return }
 
-                if self.playSounds {
-                    SoundPlayer.shared.playRecordingStart()
-                }
-
                 self.speechRecognizer.onPartialResult = { text in
                     Task { @MainActor in
                         self.liveTranscript = text
@@ -506,16 +507,20 @@ final class AppState: ObservableObject {
                             if let speechError = error as? SpeechRecognizerError {
                                 switch speechError {
                                 case .audioEngineStartFailed, .invalidAudioFormat, .recognizerUnavailable, .couldNotCreateRequest, .microphoneBusy:
-                                    self.recoverToIdle(message: nil)
+                                    self.recoverToIdle(rebuildEngine: true, message: nil)
                                     self.setError(speechError.localizedDescription)
                                     return
                                 default:
                                     break
                                 }
                             }
-                            self.recoverToIdle(message: "No speech detected — try again")
+                            self.recoverToIdle(rebuildEngine: true, message: "No speech detected — try again")
                         }
                     }
+                }
+
+                if self.playSounds {
+                    SoundPlayer.shared.playRecordingStart()
                 }
             }
         }
@@ -531,21 +536,20 @@ final class AppState: ObservableObject {
             return
         }
 
-        if playSounds {
-            SoundPlayer.shared.playRecordingStop()
-        }
-
         stopRecordingTimer()
         audioLevel = 0
         status = .transcribing
         liveTranscript = ""
         speechRecognizer.stopRecognition()
+        if playSounds {
+            SoundPlayer.shared.playRecordingStop()
+        }
 
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             if self.status == .transcribing && !self.transcriptionProcessed {
                 self.logger.warning("Transcription timed out — resetting to idle")
-                self.recoverToIdle(message: "No speech detected")
+                self.recoverToIdle(rebuildEngine: true, message: "No speech detected")
             }
         }
     }
@@ -555,7 +559,7 @@ final class AppState: ObservableObject {
         let trimmed = vocabularyApplied.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmed.isEmpty else {
-            recoverToIdle(message: "No speech detected")
+            recoverToIdle(rebuildEngine: true, message: "No speech detected")
             hideFloatingWindow()
             return
         }
@@ -673,12 +677,16 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func recoverToIdle(message: String?) {
+    private func recoverToIdle(rebuildEngine: Bool = true, message: String?) {
         transcriptionProcessed = true
         isStartingRecording = false
         status = .idle
-        speechRecognizer.resetSession()
-        stopMicTest()
+        if rebuildEngine {
+            speechRecognizer.resetSession()
+        }
+        if isMicTestRunning {
+            stopMicTest()
+        }
         llmTimeoutTask?.cancel()
         stopRecordingTimer()
         liveTranscript = ""
@@ -725,12 +733,17 @@ final class AppState: ObservableObject {
         recordingDuration = "0:00"
         recordingTimerTask?.cancel()
         recordingTimerTask = Task { @MainActor in
+            var warnedSilence = false
             while !Task.isCancelled, self.status == .recording {
                 if let started = self.recordingStartedAt {
                     let elapsed = Int(Date().timeIntervalSince(started))
                     let minutes = elapsed / 60
                     let seconds = elapsed % 60
                     self.recordingDuration = String(format: "%d:%02d", minutes, seconds)
+                    if !warnedSilence, elapsed >= 2, self.audioLevel < 0.03 {
+                        warnedSilence = true
+                        self.setStatusMessage("No mic signal. Keep the headset connected and check System Settings → Sound → Input.")
+                    }
                 }
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }

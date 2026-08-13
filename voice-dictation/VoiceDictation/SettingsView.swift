@@ -120,31 +120,20 @@ struct SettingsView: View {
             }
 
             Section("Microphone") {
-                if appState.audioInputs.isEmpty {
-                    Text("No microphones found.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                } else {
-                    Picker("Input", selection: Binding(
-                        get: { appState.resolvedInputUID },
-                        set: { appState.saveSelectedInput($0) }
-                    )) {
-                        ForEach(appState.audioInputs) { device in
-                            Text(device.name).tag(device.uid)
-                        }
-                    }
-                    .accessibilityLabel("Microphone input")
+                Text("Dictation uses “\(appState.currentInputName)”. Changing input here used to disconnect headsets, so the mic is chosen in System Settings.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Button("Open Sound Settings") {
+                    AudioInputManager.openSoundSettings()
                 }
+                .accessibilityLabel("Open Sound Settings")
 
                 Button("Check microphone") {
                     MicTestWindowController.shared.show(appState: appState)
                 }
                 .disabled(appState.status == .recording || appState.status == .transcribing)
                 .accessibilityLabel("Check microphone")
-
-                Text("Opens a separate window. Start the test there to confirm laptop vs headset input. This does not change your Mac’s system default microphone.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
 
             Section("Global Hotkey") {

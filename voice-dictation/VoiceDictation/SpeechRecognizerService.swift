@@ -47,10 +47,9 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
     private var speechRecognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
-    private let audioEngine = AVAudioEngine()
+    private var audioEngine = AVAudioEngine()
     private var tapInstalled = false
-
-    var preferredInputUID: String = ""
+    private var sessionGeneration: UInt64 = 0
 
     private let stateQueue = DispatchQueue(label: "com.nagesh.voicedictation.speech-state")
     private var _completion: ((Result<String, Error>) -> Void)?
@@ -148,8 +147,7 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
     // MARK: - Start / Stop / Cancel
 
     func startRecognition(completion: @escaping (Result<String, Error>) -> Void) {
-        cancelRecognitionIfNeeded(notify: true)
-        stopCaptureGraph()
+        let generation = beginNewSession(notifyPrevious: true)
         onDeviceFallbackMessage = nil
 
         guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
@@ -166,7 +164,7 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
 
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
         guard let recognitionRequest = recognitionRequest else {
-            finish(with: .failure(SpeechRecognizerError.couldNotCreateRequest))
+            finish(with: .failure(SpeechRecognizerError.couldNotCreateRequest), generation: generation)
             return
         }
         recognitionRequest.shouldReportPartialResults = true
@@ -185,23 +183,22 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             recognitionRequest.requiresOnDeviceRecognition = false
         }
 
-        applyPreferredInputIfPossible()
-
         do {
             try beginInputTap(bufferSize: 1024, appendToRecognizer: true)
         } catch {
-            stopCaptureGraph()
-            finish(with: .failure(SpeechRecognizerError.audioEngineStartFailed(error)))
+            rebuildEngine()
+            finish(with: .failure(SpeechRecognizerError.audioEngineStartFailed(error)), generation: generation)
             return
         }
 
         recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
             guard let self else { return }
+            guard self.isCurrentSession(generation) else { return }
 
             if let result = result {
                 let text = result.bestTranscription.formattedString
                 if result.isFinal {
-                    self.finish(with: .success(text))
+                    self.finish(with: .success(text), generation: generation)
                     return
                 }
                 self.stateQueue.sync { self._lastPartialText = text }
@@ -211,7 +208,7 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             }
 
             if let error = error {
-                self.handleRecognitionError(error)
+                self.handleRecognitionError(error, generation: generation)
             }
         }
     }
@@ -226,27 +223,45 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
             guard let self else { return }
+            let generation = self.stateQueue.sync { self.sessionGeneration }
             let shouldFinish = self.stateQueue.sync { !self._hasCompleted }
             if shouldFinish {
-                self.finish(with: .success(self.lastPartialText))
+                self.finish(with: .success(self.lastPartialText), generation: generation)
             }
         }
     }
 
     func cancel() {
-        cancelRecognitionIfNeeded(notify: true)
-        stopCaptureGraph()
+        _ = beginNewSession(notifyPrevious: true)
+        rebuildEngine()
     }
 
     func resetSession() {
-        cancel()
+        _ = beginNewSession(notifyPrevious: false)
+        rebuildEngine()
+        configureRecognizer(localeIdentifier: localeIdentifier)
     }
 
     // MARK: - Private
 
-    private func applyPreferredInputIfPossible() {
-        guard !preferredInputUID.isEmpty else { return }
-        AudioInputManager.applyToInputNode(uid: preferredInputUID, inputNode: audioEngine.inputNode)
+    private func isCurrentSession(_ generation: UInt64) -> Bool {
+        stateQueue.sync { sessionGeneration == generation }
+    }
+
+    @discardableResult
+    private func beginNewSession(notifyPrevious: Bool) -> UInt64 {
+        cancelRecognitionIfNeeded(notify: notifyPrevious)
+        stopCaptureGraph()
+        return stateQueue.sync { () -> UInt64 in
+            sessionGeneration += 1
+            return sessionGeneration
+        }
+    }
+
+    private func rebuildEngine() {
+        stopCaptureGraph()
+        audioEngine = AVAudioEngine()
+        tapInstalled = false
     }
 
     private func beginInputTap(bufferSize: AVAudioFrameCount, appendToRecognizer: Bool) throws {
@@ -256,7 +271,6 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
                     self.audioEngine.inputNode.removeTap(onBus: 0)
                     self.tapInstalled = false
                 }
-                self.applyPreferredInputIfPossible()
                 self.audioEngine.inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: nil) { [weak self] buffer, _ in
                     guard let self else { return }
                     if appendToRecognizer {
@@ -284,21 +298,24 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
     }
 
     private func cancelRecognitionIfNeeded(notify: Bool) {
+        var callback: ((Result<String, Error>) -> Void)?
+        var shouldNotify = false
         stateQueue.sync {
-            let wasRunning = _isRunning && !_hasCompleted
+            shouldNotify = notify && _isRunning && !_hasCompleted
             _hasCompleted = true
             _isRunning = false
-            let cb = _completion
+            callback = _completion
             _completion = nil
-            if notify, wasRunning, let cb {
-                DispatchQueue.main.async {
-                    cb(.failure(SpeechRecognizerError.cancelled))
-                }
-            }
         }
-        recognitionTask?.cancel()
+        let task = recognitionTask
         recognitionTask = nil
         recognitionRequest = nil
+        task?.cancel()
+        if shouldNotify, let callback {
+            DispatchQueue.main.async {
+                callback(.failure(SpeechRecognizerError.cancelled))
+            }
+        }
     }
 
     /// Stop the hardware graph without `reset()` or `prepare()`, which can abort.
@@ -325,8 +342,9 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
         }
     }
 
-    private func finish(with result: Result<String, Error>) {
+    private func finish(with result: Result<String, Error>, generation: UInt64) {
         let shouldProceed: Bool = stateQueue.sync {
+            guard sessionGeneration == generation else { return false }
             guard !_hasCompleted else { return false }
             _hasCompleted = true
             _isRunning = false
@@ -349,27 +367,27 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
         }
     }
 
-    private func handleRecognitionError(_ error: Error) {
+    private func handleRecognitionError(_ error: Error, generation: UInt64) {
         let nsError = error as NSError
         if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
-            finish(with: .failure(SpeechRecognizerError.cancelled))
+            finish(with: .failure(SpeechRecognizerError.cancelled), generation: generation)
             return
         }
 
         let partial = lastPartialText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !partial.isEmpty {
             logger.info("Recognition ended with error but partial text exists — using partial")
-            finish(with: .success(partial))
+            finish(with: .success(partial), generation: generation)
             return
         }
 
         if isNoSpeechError(nsError) {
             logger.info("No speech detected (code \(nsError.code)) — treating as empty result")
-            finish(with: .success(""))
+            finish(with: .success(""), generation: generation)
             return
         }
 
-        finish(with: .failure(SpeechRecognizerError.recognitionFailed(error)))
+        finish(with: .failure(SpeechRecognizerError.recognitionFailed(error)), generation: generation)
     }
 
     private func isNoSpeechError(_ error: NSError) -> Bool {

@@ -2,8 +2,7 @@
 //  MicTestView.swift
 //  VoiceDictation
 //
-//  Pick laptop vs headphone mic and confirm the level meter moves.
-//  Audio starts only when the user clicks Start test.
+//  Confirms the system default mic (headset or laptop) without switching devices.
 //
 
 import SwiftUI
@@ -13,23 +12,27 @@ struct MicTestView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Speak at a normal volume after you start the test. The meter should move. If it stays still, pick a different input.")
+            Text("This uses whatever microphone macOS currently has selected, so your headset will not disconnect. Speak after Start test — the meter should move.")
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if appState.audioInputs.isEmpty {
-                Text("No microphones found. Check System Settings → Privacy & Security → Microphone.")
+            HStack {
+                Text("Current input")
                     .font(.caption)
-                    .foregroundColor(.red)
-            } else {
-                Picker("Input", selection: micSelection) {
-                    ForEach(appState.audioInputs) { device in
-                        Text(device.name).tag(device.uid)
-                    }
-                }
-                .accessibilityLabel("Microphone input")
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text(appState.currentInputName)
+                    .font(.caption)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.trailing)
             }
+
+            Button("Open Sound Settings to change mic") {
+                AudioInputManager.openSoundSettings()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(appState.isMicTestRunning ? "Listening…" : "Meter idle — press Start test")
@@ -55,7 +58,7 @@ struct MicTestView: View {
                         appState.startMicTest()
                     }
                 }
-                .disabled(appState.audioInputs.isEmpty || appState.status == .recording || appState.status == .transcribing)
+                .disabled(appState.status == .recording || appState.status == .transcribing)
                 .keyboardShortcut(.defaultAction)
 
                 Spacer()
@@ -66,17 +69,10 @@ struct MicTestView: View {
             }
         }
         .padding(20)
-        .frame(width: 360)
+        .frame(width: 380)
         .onAppear {
             appState.refreshAudioInputs()
         }
-    }
-
-    private var micSelection: Binding<String> {
-        Binding(
-            get: { appState.resolvedInputUID },
-            set: { appState.saveSelectedInput($0) }
-        )
     }
 
     private var meterColor: Color {

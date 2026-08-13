@@ -62,7 +62,6 @@ if swiftc -O \
     -framework ServiceManagement \
     -framework CryptoKit \
     -framework CoreAudio \
-    -framework AudioToolbox \
     -import-objc-header VoiceDictation/ExceptionCatcher.h \
     VoiceDictation/*.swift \
     VoiceDictation/ExceptionCatcher.m \
