@@ -308,16 +308,24 @@ final class AppState: ObservableObject {
     func refreshAudioInputs() {
         audioInputs = AudioInputManager.inputDevices()
         if selectedInputUID.isEmpty || !audioInputs.contains(where: { $0.uid == selectedInputUID }) {
-            selectedInputUID = AudioInputManager.defaultInputDevice()?.uid ?? audioInputs.first?.uid ?? ""
+            selectedInputUID = AudioInputManager.defaultInputUID()
+                ?? audioInputs.first?.uid
+                ?? ""
         }
         speechRecognizer.preferredInputUID = selectedInputUID
+    }
+
+    var resolvedInputUID: String {
+        if audioInputs.contains(where: { $0.uid == selectedInputUID }) {
+            return selectedInputUID
+        }
+        return audioInputs.first?.uid ?? ""
     }
 
     func saveSelectedInput(_ uid: String) {
         selectedInputUID = uid
         UserDefaults.standard.set(uid, forKey: UserDefaultsKey.preferredAudioInputUID)
         speechRecognizer.preferredInputUID = uid
-        AudioInputManager.setDefaultInput(uid: uid)
         if isMicTestRunning {
             startMicTest()
         }
@@ -333,8 +341,7 @@ final class AppState: ObservableObject {
         isMicTestRunning = false
         micTestLevel = 0
         refreshAudioInputs()
-        speechRecognizer.preferredInputUID = selectedInputUID
-        AudioInputManager.setDefaultInput(uid: selectedInputUID)
+        speechRecognizer.preferredInputUID = resolvedInputUID
         micTester.onLevel = { [weak self] level in
             Task { @MainActor in
                 guard let self, self.micTestSession == session, self.isMicTestRunning else { return }
@@ -342,7 +349,7 @@ final class AppState: ObservableObject {
             }
         }
         do {
-            try micTester.start()
+            try micTester.start(deviceUID: resolvedInputUID)
             guard micTestSession == session else {
                 micTester.stop()
                 return
@@ -371,6 +378,7 @@ final class AppState: ObservableObject {
     private var transcriptionProcessed: Bool = false
     private var isStartingRecording: Bool = false
     private var errorClearTask: Task<Void, Never>?
+    private var statusClearTask: Task<Void, Never>?
     private var llmTimeoutTask: Task<Void, Never>?
     private var recordingTimerTask: Task<Void, Never>?
     private var recordingStartedAt: Date?
@@ -422,6 +430,7 @@ final class AppState: ObservableObject {
         }
 
         stopMicTest()
+        speechRecognizer.resetSession()
         isStartingRecording = true
         clearMessages()
         liveTranscript = ""
@@ -437,10 +446,6 @@ final class AppState: ObservableObject {
 
         status = .recording
         startRecordingTimer()
-
-        if playSounds {
-            SoundPlayer.shared.playRecordingStart()
-        }
 
         speechRecognizer.onAudioLevel = { [weak self] level in
             Task { @MainActor in
@@ -464,6 +469,10 @@ final class AppState: ObservableObject {
                 }
 
                 guard self.status == .recording else { return }
+
+                if self.playSounds {
+                    SoundPlayer.shared.playRecordingStart()
+                }
 
                 self.speechRecognizer.onPartialResult = { text in
                     Task { @MainActor in
@@ -518,6 +527,7 @@ final class AppState: ObservableObject {
             status = .idle
             liveTranscript = ""
             stopRecordingTimer()
+            speechRecognizer.resetSession()
             return
         }
 
@@ -740,6 +750,7 @@ final class AppState: ObservableObject {
         errorMessage = ""
         statusMessage = ""
         errorClearTask?.cancel()
+        statusClearTask?.cancel()
     }
 
     private func setError(_ message: String) {
@@ -762,8 +773,10 @@ final class AppState: ObservableObject {
     }
 
     private func scheduleStatusMessageAutoClear() {
-        Task { @MainActor in
+        statusClearTask?.cancel()
+        statusClearTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
             self.statusMessage = ""
         }
     }

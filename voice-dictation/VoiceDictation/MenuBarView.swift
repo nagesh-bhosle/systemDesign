@@ -13,7 +13,6 @@ struct MenuBarView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showHistory = false
     @State private var showCopiedFeedback = false
-    @State private var showMicTest = false
 
     var body: some View {
         VStack(spacing: 14) {
@@ -38,12 +37,6 @@ struct MenuBarView: View {
         }
         .sheet(isPresented: $showHistory) {
             HistoryView()
-                .environmentObject(appState)
-        }
-        .sheet(isPresented: $showMicTest, onDismiss: {
-            appState.stopMicTest()
-        }) {
-            MicTestView()
                 .environmentObject(appState)
         }
     }
@@ -123,7 +116,7 @@ struct MenuBarView: View {
 
     private var micCheckButton: some View {
         Button("Check microphone") {
-            showMicTest = true
+            MicTestWindowController.shared.show(appState: appState)
         }
         .buttonStyle(.bordered)
         .controlSize(.small)

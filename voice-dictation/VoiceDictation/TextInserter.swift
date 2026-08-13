@@ -70,7 +70,7 @@ final class TextInserter {
         let finish: (InsertResult) -> Void = { result in
             self.lastInsertResult = result
             if result == .pasted, self.restoreClipboardEnabled {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
                     self.restoreClipboardContents(previousClipboard)
                 }
             }

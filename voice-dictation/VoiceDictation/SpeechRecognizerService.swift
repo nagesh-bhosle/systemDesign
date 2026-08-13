@@ -3,7 +3,6 @@
 //  VoiceDictation
 //
 //  On-device speech recognition using Apple's SFSpeechRecognizer.
-//  One AVAudioEngine is shared by dictation and the microphone test.
 //
 
 import Foundation
@@ -186,14 +185,7 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             recognitionRequest.requiresOnDeviceRecognition = false
         }
 
-        applyPreferredInput()
-
-        let recordingFormat = audioEngine.inputNode.outputFormat(forBus: 0)
-        guard recordingFormat.channelCount > 0, recordingFormat.sampleRate > 0 else {
-            stopCaptureGraph()
-            finish(with: .failure(SpeechRecognizerError.invalidAudioFormat))
-            return
-        }
+        applyPreferredInputIfPossible()
 
         do {
             try beginInputTap(bufferSize: 1024, appendToRecognizer: true)
@@ -252,9 +244,9 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
 
     // MARK: - Private
 
-    private func applyPreferredInput() {
+    private func applyPreferredInputIfPossible() {
         guard !preferredInputUID.isEmpty else { return }
-        AudioInputManager.setDefaultInput(uid: preferredInputUID)
+        AudioInputManager.applyToInputNode(uid: preferredInputUID, inputNode: audioEngine.inputNode)
     }
 
     private func beginInputTap(bufferSize: AVAudioFrameCount, appendToRecognizer: Bool) throws {
@@ -264,6 +256,7 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
                     self.audioEngine.inputNode.removeTap(onBus: 0)
                     self.tapInstalled = false
                 }
+                self.applyPreferredInputIfPossible()
                 self.audioEngine.inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: nil) { [weak self] buffer, _ in
                     guard let self else { return }
                     if appendToRecognizer {
@@ -281,6 +274,12 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
         } catch {
             stopCaptureGraph()
             throw error
+        }
+
+        let format = audioEngine.inputNode.outputFormat(forBus: 0)
+        if format.channelCount == 0 || format.sampleRate == 0 {
+            stopCaptureGraph()
+            throw SpeechRecognizerError.invalidAudioFormat
         }
     }
 
@@ -320,17 +319,7 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
     }
 
     private func publishAudioLevel(from buffer: AVAudioPCMBuffer) {
-        guard let channelData = buffer.floatChannelData?[0] else { return }
-        let frameLength = Int(buffer.frameLength)
-        guard frameLength > 0 else { return }
-
-        var sum: Float = 0
-        for index in 0..<frameLength {
-            let sample = channelData[index]
-            sum += sample * sample
-        }
-        let rms = sqrt(sum / Float(frameLength))
-        let level = min(1.0, rms * 16)
+        let level = AudioLevel.rms(from: buffer)
         DispatchQueue.main.async { [weak self] in
             self?.onAudioLevel?(level)
         }

@@ -4,6 +4,8 @@ Date: 2026-08-13
 Scope: current `feature/mic-check-and-recovery` code under `voice-dictation/`  
 Method: full source read of recording, mic test, paste, permissions, UI, and persistence. Not an automated UI crawl.
 
+**Status:** P0/P1 items below were implemented after this review (mic-test `NSPanel`, no auto-start, no system-default hijack, picker guard, capture-session meter, engine start without layout `prepare()`, Int16 RMS, smoke list in `SMOKE_TEST.md`). Keep this file as the original finding list.
+
 The user still reports that **Check microphone crashes / closes the app**. That is treated as **open**, not fixed, even though later commits moved the meter off `AVAudioEngine`.
 
 ---

@@ -120,37 +120,29 @@ struct SettingsView: View {
             }
 
             Section("Microphone") {
-                Picker("Input", selection: Binding(
-                    get: { appState.selectedInputUID },
-                    set: { appState.saveSelectedInput($0) }
-                )) {
-                    ForEach(appState.audioInputs) { device in
-                        Text(device.name).tag(device.uid)
+                if appState.audioInputs.isEmpty {
+                    Text("No microphones found.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Picker("Input", selection: Binding(
+                        get: { appState.resolvedInputUID },
+                        set: { appState.saveSelectedInput($0) }
+                    )) {
+                        ForEach(appState.audioInputs) { device in
+                            Text(device.name).tag(device.uid)
+                        }
                     }
-                }
-                .accessibilityLabel("Microphone input")
-
-                Button(appState.isMicTestRunning ? "Stop microphone test" : "Check microphone") {
-                    if appState.isMicTestRunning {
-                        appState.stopMicTest()
-                    } else {
-                        appState.startMicTest()
-                    }
-                }
-                .disabled(!appState.isMicTestRunning && (appState.status == .recording || appState.status == .transcribing))
-                .accessibilityLabel(appState.isMicTestRunning ? "Stop microphone test" : "Check microphone")
-
-                if appState.isMicTestRunning {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Speak now — the bar should move.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        ProgressView(value: appState.micTestLevel)
-                            .progressViewStyle(.linear)
-                    }
+                    .accessibilityLabel("Microphone input")
                 }
 
-                Text("Use this to confirm whether the laptop mic or a headset mic is picking up your voice before you record.")
+                Button("Check microphone") {
+                    MicTestWindowController.shared.show(appState: appState)
+                }
+                .disabled(appState.status == .recording || appState.status == .transcribing)
+                .accessibilityLabel("Check microphone")
+
+                Text("Opens a separate window. Start the test there to confirm laptop vs headset input. This does not change your Mac’s system default microphone.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
