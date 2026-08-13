@@ -110,7 +110,7 @@ final class AbacusLLMService {
                 ["role": "user", "content": text]
             ],
             "temperature": 0.3,
-            "max_tokens": 1024
+            "max_tokens": 4096
         ]
 
         do {

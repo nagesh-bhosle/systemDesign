@@ -535,15 +535,21 @@ final class AppState: ObservableObject {
         stopRecordingTimer()
         audioLevel = 0
         status = .transcribing
-        liveTranscript = ""
         speechRecognizer.stopRecognition()
 
-        let timeout = speechRecognizer.recommendedTranscribeTimeout()
+        let timeout = speechRecognizer.recommendedTranscribeTimeout() + 8
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
             if self.status == .transcribing && !self.transcriptionProcessed {
-                self.logger.warning("Transcription timed out — resetting to idle")
-                self.recoverToIdle(rebuildEngine: true, message: "No speech detected", playFinishedSound: true)
+                let fallback = self.liveTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !fallback.isEmpty {
+                    self.logger.warning("Transcription watchdog fired — using partial transcript (\(fallback.count) chars)")
+                    self.transcriptionProcessed = true
+                    self.processTranscript(fallback)
+                    return
+                }
+                self.logger.warning("Transcription timed out with no text")
+                self.recoverToIdle(rebuildEngine: true, message: "Transcription timed out. Try again, or speak in shorter takes if it keeps failing.", playFinishedSound: true)
             }
         }
     }

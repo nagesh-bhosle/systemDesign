@@ -146,7 +146,7 @@ struct MenuBarView: View {
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else if appState.status == .transcribing {
-            Text("Transcribing after you stop…")
+            Text("Transcribing after you stop… longer takes can take a minute.")
                 .font(.caption2)
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)

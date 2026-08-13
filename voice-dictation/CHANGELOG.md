@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.2 — 2026-08-13
+
+- Long dictation: Apple Speech stops around one minute per request. Recordings are split into ~40s chunks, transcribed in order, and joined so you can speak for minutes.
+- Timed-out long takes no longer get thrown away as “no speech”; any partial transcript is kept.
+
 ## 0.5.1 — 2026-08-13
 
 - Fix auto-paste inserting the **previous** take: do not restore the old clipboard until the focused field actually contains this transcript. A timed restore was racing Cmd+V. False Accessibility "success" now falls through to Cmd+V.

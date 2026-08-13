@@ -95,10 +95,15 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
         TempRecordingCleanup.purgeOrphanedFiles()
     }
 
-    /// Seconds to wait for URL transcription. Scales with take length so long
-    /// recordings are not cut off by a fixed 8s cap.
+    /// Apple's Speech framework drops tasks around one minute of audio.
+    /// Chunk long takes so minutes of speech still transcribe.
+    private static let sttChunkSeconds: TimeInterval = 40
+    private static let sttSecondsPerChunk: TimeInterval = 55
+
+    /// Seconds to wait for URL transcription across all chunks.
     func recommendedTranscribeTimeout() -> TimeInterval {
-        min(60, max(12, lastRecordingDuration * 2.5 + 6))
+        let chunks = max(1, ceil(lastRecordingDuration / Self.sttChunkSeconds))
+        return min(900, chunks * Self.sttSecondsPerChunk + 20)
     }
 
     func speechRecognizer(_ speechRecognizer: SFSpeechRecognizer, availabilityDidChange available: Bool) {
@@ -255,15 +260,81 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             finish(with: .success(""), generation: generation)
             return
         }
+        _ = speechRecognizer
 
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? 0
-        // Only skip header-only / click takes. A 2000-byte cutoff discarded real
-        // short speech when the CAF write lagged behind recorder.stop().
         let headerOnly = fileSize < 256
         let accidentalClick = lastRecordingDuration > 0 && lastRecordingDuration < 0.08 && fileSize < 512
         if headerOnly || accidentalClick {
             logger.info("Recording empty (size=\(fileSize) duration=\(self.lastRecordingDuration)s) — treating as no speech")
             finish(with: .success(""), generation: generation)
+            return
+        }
+
+        let chunks: [URL]
+        do {
+            chunks = try audioChunks(from: url, chunkSeconds: Self.sttChunkSeconds)
+        } catch {
+            logger.warning("Could not split recording, transcribing whole file: \(error.localizedDescription, privacy: .public)")
+            chunks = [url]
+        }
+
+        logger.info("Transcribing \(chunks.count, privacy: .public) chunk(s) for \(self.lastRecordingDuration, privacy: .public)s recording")
+        transcribeChunks(
+            chunks,
+            index: 0,
+            accumulated: "",
+            generation: generation,
+            originalsToDelete: chunks.filter { $0 != url }
+        )
+    }
+
+    private func transcribeChunks(
+        _ chunks: [URL],
+        index: Int,
+        accumulated: String,
+        generation: UInt64,
+        originalsToDelete: [URL]
+    ) {
+        guard isCurrentSession(generation) else {
+            originalsToDelete.forEach { try? FileManager.default.removeItem(at: $0) }
+            return
+        }
+
+        if index >= chunks.count {
+            originalsToDelete.forEach { try? FileManager.default.removeItem(at: $0) }
+            finish(with: .success(accumulated.trimmingCharacters(in: .whitespacesAndNewlines)), generation: generation)
+            return
+        }
+
+        transcribeOneChunk(url: chunks[index], generation: generation) { [weak self] chunkText in
+            guard let self else { return }
+            let next = Self.joinTranscripts(accumulated, chunkText)
+            self.stateQueue.sync { self._lastPartialText = next }
+            DispatchQueue.main.async {
+                self.onPartialResult?(next)
+            }
+            self.transcribeChunks(
+                chunks,
+                index: index + 1,
+                accumulated: next,
+                generation: generation,
+                originalsToDelete: originalsToDelete
+            )
+        }
+    }
+
+    private static func joinTranscripts(_ left: String, _ right: String) -> String {
+        let a = left.trimmingCharacters(in: .whitespacesAndNewlines)
+        let b = right.trimmingCharacters(in: .whitespacesAndNewlines)
+        if a.isEmpty { return b }
+        if b.isEmpty { return a }
+        return a + " " + b
+    }
+
+    private func transcribeOneChunk(url: URL, generation: UInt64, completion: @escaping (String) -> Void) {
+        guard isCurrentSession(generation), let speechRecognizer else {
+            completion("")
             return
         }
 
@@ -283,36 +354,95 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             request.requiresOnDeviceRecognition = false
         }
 
+        var chunkPartial = ""
+        var chunkFinished = false
+        let finishChunk: (String) -> Void = { text in
+            guard !chunkFinished else { return }
+            chunkFinished = true
+            completion(text)
+        }
+
+        recognitionTask?.cancel()
         recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
             guard self.isCurrentSession(generation) else { return }
 
             if let result = result {
                 let text = result.bestTranscription.formattedString
+                chunkPartial = text
                 if result.isFinal {
-                    self.finish(with: .success(text), generation: generation)
+                    finishChunk(text)
                     return
                 }
                 self.stateQueue.sync { self._lastPartialText = text }
-                DispatchQueue.main.async {
-                    self.onPartialResult?(text)
-                }
             }
 
             if let error = error {
-                self.handleRecognitionError(error, generation: generation)
+                let nsError = error as NSError
+                if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
+                    finishChunk(chunkPartial)
+                    return
+                }
+                if !chunkPartial.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    finishChunk(chunkPartial)
+                    return
+                }
+                if self.isNoSpeechError(nsError) {
+                    finishChunk("")
+                    return
+                }
+                self.logger.warning("Chunk transcription error: \(error.localizedDescription, privacy: .public)")
+                finishChunk(chunkPartial)
             }
         }
 
-        let timeout = recommendedTranscribeTimeout()
-        logger.info("Transcribe timeout \(timeout, privacy: .public)s for \(self.lastRecordingDuration, privacy: .public)s recording")
-        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self] in
-            guard let self else { return }
-            let shouldFinish = self.stateQueue.sync { !self._hasCompleted && self.sessionGeneration == generation }
-            if shouldFinish {
-                self.finish(with: .success(self.lastPartialText), generation: generation)
-            }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.sttSecondsPerChunk) { [weak self] in
+            guard let self, !chunkFinished else { return }
+            guard self.isCurrentSession(generation) else { return }
+            self.logger.warning("Chunk transcription timed out — keeping partial text")
+            self.recognitionTask?.cancel()
+            finishChunk(chunkPartial)
         }
+    }
+
+    /// Split a linear PCM recording into pieces under Apple's ~1 minute STT limit.
+    private func audioChunks(from url: URL, chunkSeconds: TimeInterval) throws -> [URL] {
+        let input = try AVAudioFile(forReading: url)
+        let format = input.processingFormat
+        let totalFrames = input.length
+        let framesPerChunk = AVAudioFrameCount(max(1, format.sampleRate * chunkSeconds))
+        if totalFrames <= AVAudioFramePosition(framesPerChunk) {
+            return [url]
+        }
+
+        var urls: [URL] = []
+        var start: AVAudioFramePosition = 0
+        var index = 0
+        while start < totalFrames {
+            let remaining = AVAudioFrameCount(totalFrames - start)
+            let count = min(framesPerChunk, remaining)
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: count) else { break }
+            input.framePosition = start
+            try input.read(into: buffer, frameCount: count)
+            let chunkURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("voicedictation-chunk-\(UUID().uuidString)-\(index).caf")
+            let output = try AVAudioFile(
+                forWriting: chunkURL,
+                settings: [
+                    AVFormatIDKey: Int(kAudioFormatLinearPCM),
+                    AVSampleRateKey: format.sampleRate,
+                    AVNumberOfChannelsKey: format.channelCount,
+                    AVLinearPCMBitDepthKey: 16,
+                    AVLinearPCMIsFloatKey: false,
+                    AVLinearPCMIsBigEndianKey: false
+                ]
+            )
+            try output.write(from: buffer)
+            urls.append(chunkURL)
+            start += AVAudioFramePosition(count)
+            index += 1
+        }
+        return urls.isEmpty ? [url] : urls
     }
 
     // MARK: - Session
