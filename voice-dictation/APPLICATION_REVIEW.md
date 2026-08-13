@@ -1,188 +1,104 @@
 # Application review — Voice Dictation
 
-Date: 2026-08-13  
-Scope: current `feature/mic-check-and-recovery` code under `voice-dictation/`  
-Method: full source read of recording, mic test, paste, permissions, UI, and persistence. Not an automated UI crawl.
+Date: 2026-08-13 (updated after known-good merge)  
+Snapshot: `main` @ `c1c3ee7`, tags **`voice-dictation-working`** and **`voice-dictation-working-2026-08-13`**
 
-**Status:** P0/P1 items below were implemented after this review (mic-test `NSPanel`, no auto-start, no system-default hijack, picker guard, capture-session meter, engine start without layout `prepare()`, Int16 RMS, smoke list in `SMOKE_TEST.md`). Keep this file as the original finding list.
+Restore that build:
 
-The user still reports that **Check microphone crashes / closes the app**. That is treated as **open**, not fixed, even though later commits moved the meter off `AVAudioEngine`.
-
----
-
-## Open P0 — Check microphone still unsafe
-
-### 1. Sheet hosted in `MenuBarExtra` (most likely remaining crash)
-
-`MenuBarView` presents `MicTestView` as a SwiftUI `.sheet` on the menu-bar extra window (`VoiceDictationApp`: `.menuBarExtraStyle(.window)`).
-
-On macOS this pattern is unstable:
-
-- Opening a sheet often dismisses or recreates the extra window.
-- `onAppear` / `onDisappear` can fire more than once.
-- Layout of the sheet runs inside `NSHostingView.layout` (the 2026-08-13 02:58 crash stack was exactly that).
-
-A later `DispatchQueue.main.async` around `startMicTest()` does **not** remove the sheet-from-menu-bar problem.
-
-**Fix direction:** present Check microphone in a dedicated `NSPanel` (same approach as onboarding / floating bar), not as a sheet on the extra.
-
-### 2. Mic test still auto-starts when the UI appears
-
-`MicTestView.onAppear` always starts the test. Combined with (1), audio I/O still begins while SwiftUI is presenting a window.
-
-`AVAudioRecorder.prepareToRecord()` / `record()` can also fail hard. It is safer than `AVAudioEngine.prepare()`, but it is not crash-proof, especially if the system default input is being changed at the same time (see 3).
-
-**Fix direction:** default the sheet/panel to idle. Start only on an explicit **Start test** click, after the window has finished laying out.
-
-### 3. Changing the Mac’s default input on every test
-
-`AudioInputManager.setDefaultInput` writes `kAudioHardwarePropertyDefaultInputDevice` (system-wide). `startMicTest()` and `saveSelectedInput()` both do this, then immediately start `AVAudioRecorder`.
-
-HAL reconfiguration while opening a recorder is a known abort/hang. It also changes the user’s input for FaceTime, Zoom, and every other app.
-
-**Fix direction:** do not change the system default. Either use the current default and tell the user to pick the mic in System Settings, or set the device only on the capture unit you own.
-
-### 4. SwiftUI `Picker` with a selection that is not in the list
-
-```swift
-Picker("Input", selection: selectedInputUID) {
-    ForEach(audioInputs) { Text(device.name).tag(device.uid) }
-}
+```
+git checkout voice-dictation-working
+cd voice-dictation && ./run.sh
 ```
 
-If `audioInputs` is empty on first frame, or `selectedInputUID` from UserDefaults is not in the list yet, macOS Pickers can crash. Same picker exists in Settings.
-
-**Fix direction:** include an explicit empty/`None` tag, or do not render the Picker until the selection is a member of `audioInputs`.
-
-### 5. Appear/disappear race leaves the recorder running
-
-Sequence:
-
-1. `onAppear` schedules `startMicTest()` asynchronously.
-2. User closes the window → `onDisappear` / `onDismiss` calls `stopMicTest()` (session++).
-3. The delayed `startMicTest()` runs anyway, increments the session again, and **starts a new recorder with no UI**.
-
-That matches “Stop is frozen / test won’t stop after I close the window.”
-
-**Fix direction:** delayed start must capture a session id and no-op if it no longer matches; or do not auto-start at all.
+User confirmed: **laptop mic and Bluetooth headset both record.**
 
 ---
 
-## Open P0 / P1 — Recording still fragile
+## What this snapshot got right
 
-### 6. Format check before the engine has a real format
-
-`startRecognition` reads `inputNode.outputFormat(forBus: 0)` **without** `prepare()`, then refuses to start if channel count or sample rate is 0.
-
-`prepare()` was removed because it aborted. On many Macs the format is 0 until the graph initializes. Result: **Start appears to do nothing** or immediately shows “invalid audio format” / recover-to-idle.
-
-`ExceptionCatcher` around `start()` helps only if you get past this guard.
-
-### 7. Dictation still uses `AVAudioEngine` + `installTap`
-
-`beginInputTap` can still hit `AVAudioEngineGraph::Initialize` inside `start()`. The catcher converts some `NSException`s to errors, but:
-
-- exceptions on the I/O thread inside the tap are not wrapped
-- `removeTap` when the graph is already dead can still be dangerous
-- accessing `inputNode` on a menu-bar agent app with no `AVAudioSession` (macOS) is historically flaky
-
-### 8. On-device recognition is strict (original “must shout” bug)
-
-`requiresOnDeviceRecognition = true` by default. Apple’s on-device model often ignores quiet first utterances and then ends the task with `kAFAssistantErrorDomain` (1110 / 203 / 1101). Empty results become “No speech detected.” That can feel like “recording doesn’t work.”
-
-### 9. Stop during start-up abandons state
-
-```swift
-if isStartingRecording {
-    isStartingRecording = false
-    status = .idle
-    return  // does not cancel the recognizer / engine
-}
-```
-
-If Stop is hit while authorization is in flight, a late `startRecognition` is skipped (`status != .recording`), which is OK. If Stop is hit after the engine started but before `isStartingRecording` is cleared, the engine can keep running with UI showing Idle.
-
-### 10. RMS meter ignores non-float buffers
-
-`publishAudioLevel` only reads `floatChannelData`. Built-in mics often deliver Int16. The waveform stays at 0 even when speech is captured, so users think the mic is dead.
+- Dictation uses `AVAudioRecorder` then `SFSpeechURLRecognitionRequest` (same capture path as the mic test). `AVAudioEngine` input is not used; that path switched headsets into HFP and went silent.
+- Check microphone is an `NSPanel`, not a sheet on the menu extra. Audio starts only on **Start test**.
+- The app does not change the Mac’s default input device.
+- Empty / no-speech takes return to Idle and rebuild the session so Start keeps working.
+- Paste-at-cursor, history encryption, onboarding mic/speech checks, and Accessibility helper are still in place.
 
 ---
 
-## P1 — Product / correctness
+## Remaining issues (review of the working code)
 
-### 11. Mic test writes speech to a temp `.caf` file
+### P1 — Product / correctness
 
-`MicrophoneTester` records linearly to `voicedictation-mic-test-*.caf` in the temp directory. That is a privacy issue (test audio on disk) and can fail if the disk/temp path is blocked. Delete-on-stop can lose the race on crash.
+1. **No live transcript while talking**  
+   Text appears after Stop, when the file is transcribed. The floating bar will show a timer/meter but not words until then. Expected with the headset-safe design; say so in the UI (“Transcribing after you stop…”).
 
-### 12. Device list includes virtual inputs
+2. **Speech is written to a temp `.caf` before STT**  
+   `voicedictation-*.caf` and `voicedictation-mic-test-*.caf` in the temp directory. Deleted after success, left behind on crash. Privacy-sensitive; delete in `deinit` and on terminate (`applicationWillTerminate`).
 
-`inputDevices()` returns every Core Audio device with input channels (Zoom, Teams, aggregate devices, iPhone mics). Picking the wrong one looks like “mic doesn’t work.” Prefer hardware devices, or highlight the system default.
+3. **Very short takes can be dropped**  
+   Files under 2000 bytes are treated as no speech. A quick phrase might be discarded.
 
-### 13. Paste-at-cursor still depends on unsigned rebuilds
+4. **8 second transcribe timeout**  
+   Long recordings may still be processing when the timeout finishes with whatever partial exists (possibly empty). Scale timeout with duration, or wait for `isFinal`.
 
-Each `./run.sh` produces a new binary. Accessibility TCC is per-code-signature. Unsigned builds will keep showing “needs Accessibility” after every rebuild. Codesign is optional in `run.sh` and currently logs “No Apple codesign identity found.”
+5. **Start/stop sounds are skipped**  
+   They were switching the Bluetooth route. Settings still has “Play start/stop sounds,” which now does nothing for dictation. Hide the toggle or play only after transcribe completes.
 
-### 14. Clipboard restore can beat paste
+6. **Unsigned `./run.sh` rebuilds still break paste-at-cursor**  
+   Accessibility TCC is per signature. After each rebuild: uncheck/check Voice Dictation, or codesign with a stable identity.
 
-`TextInserter` restores the previous clipboard 0.7s after a claimed paste. Slow target apps still paste the old clipboard.
+7. **Clipboard restore at 1.2s**  
+   Slow apps can paste the old clipboard. Prefer restoring only after a successful AX insert, or wait longer.
 
-### 15. `SoundPlayer` at record start
+### P2 — Robustness / polish
 
-`NSSound` (`Tink` / `Pop`) starts as the engine starts and can steal the HAL briefly (first buffers silent / engine fail).
+8. **History / Settings sheets still sit on `MenuBarExtra`**  
+   Mic test was moved to a panel for that reason. History and Settings can glitch when the extra closes. Same `NSPanel` pattern if they misbehave.
 
-### 16. Status `.error` is mostly dead
+9. **`ExceptionCatcher` is unused** by the recorder path. Harmless; can stay as a guard if engine code returns.
 
-Recovery paths set `.idle`. The menu-bar error icon almost never appears; failures are a caption that auto-clears in 4 seconds.
+10. **Custom vocabulary** interpolates user lines into regex; odd characters are skipped or over-replaced.
 
----
+11. **`DictationStatus.error` is mostly unused** — failures go to Idle plus a caption.
 
-## P2 — Robustness
+12. **No automated smoke tests.** Manual list: `SMOKE_TEST.md`. Add headset Start/Stop as item 1.
 
-### 17. Status message auto-clear is not cancellable
+13. **Mic choice is System Settings only**  
+   Intentional (avoids disconnects). The UI should keep saying that; do not bring back in-app device switching.
 
-`scheduleStatusMessageAutoClear` starts a new `Task` every time and never cancels the previous one. An old timer can blank a newer message.
+### Not bugs
 
-### 18. Custom vocabulary regex
-
-User lines are interpolated into `NSRegularExpression`. Unusual characters can make a pattern fail (silently skipped) or over-replace (e.g. short tokens inside longer words via the spaced pattern).
-
-### 19. History key vs Keychain lock
-
-History AES key is `kSecAttrAccessibleWhenUnlocked`. Saving/loading history while the Mac is locked fails open (empty or skip save).
-
-### 20. LLM cancel vs timeout
-
-Enhancement cancel sets `llmTimedOut = true` then idle. A late success is ignored (good). A late failure after cancel is also ignored. Fine, but `currentDataTask` cancel must stay in sync (`AbacusLLMService.cancel`).
-
-### 21. No tests
-
-There is no XCTest / XCUITest target. The crash and “can’t record after no speech” bugs are exactly the paths a 20-case smoke list would cover. See previous discussion: do not try to click every control; cover mic-test × dictation crossings.
-
-### 22. Stale comments
-
-`SpeechRecognizerService` and `AudioInputManager` headers still say dictation and mic test share one `AVAudioEngine`. They do not.
+- On-device STT still needs Speech Recognition permission.
+- Push-to-talk and the global hotkey do not fire in secure input fields (password prompts).
+- Accessibility is optional; without it, text goes to the clipboard.
 
 ---
 
-## What looks solid
+## Suggested next work (do not mix into the working tag)
 
-- Onboarding uses `AVAudioApplication` for mic status (not the misleading `AVCaptureDevice` path alone).
-- Empty / no-speech recognition is mapped to idle instead of a sticky `.error` that disabled Start (that older bug is addressed in `AppState`).
-- Cancel is available during transcribing/enhancing.
-- Paste tries AX selected text, then activate-target, then session Cmd+V, then clipboard.
-- History is AES-GCM in Application Support, excluded from backup; API key is in Keychain.
-- Secure fields are skipped for history when AX reports `AXSecureTextField`.
-- Info.plist has microphone and speech usage strings; `LSUIElement` is correct for a menu-bar agent.
+1. Delete temp recordings on quit and after transcribe.  
+2. UI copy: listening vs transcribing-the-file.  
+3. Transcribe timeout based on recording length.  
+4. Codesign in `run.sh` when an identity exists (already attempted).  
+5. Optional: live partials **only** for built-in mic, keep recorder path for Bluetooth — easy to regress; keep one path unless you tag again after testing both mics.
 
 ---
 
-## Recommended fix order
+## Archive — findings from before the working snapshot
 
-1. **Replace the mic-test sheet with an `NSPanel`.** Do not auto-start audio. Do not change the system default input.
-2. **Guard the input `Picker`** so selection is always in the device list.
-3. **Fix delayed `startMicTest` vs dismiss** (session id on the scheduled block, or no auto-start).
-4. **Recording:** initialize the graph without calling `prepare()` on the layout path; if format is 0, `start()` inside `ExceptionCatcher` and read format after; show the real error, not “no speech.”
-5. **Level meter:** compute RMS for Int16 as well as Float32.
-6. **Add a tiny smoke list** (manual or XCUITest): open/close mic panel, start/stop test, test then dictate, dictate with silence then dictate again.
+The sections below described bugs that were fixed before `voice-dictation-working`. Kept for history.
 
-Until (1)–(3) land, treat Check microphone as **still broken**. Rebuild with `./run.sh` after those changes; the 02:58 crash report is from the old `AVAudioEngine.prepare()` path and does not prove the recorder path is safe.
+### Fixed: Check microphone sheet crash
+
+Was a SwiftUI `.sheet` on `MenuBarExtra` calling audio during layout (`AVAudioEngine.prepare()` abort). Now a dedicated panel + `AVAudioRecorder`.
+
+### Fixed: System default mic hijack
+
+`kAudioHardwarePropertyDefaultInputDevice` / `kAudioOutputUnitProperty_CurrentDevice` dropped Bluetooth. Dictation no longer force-selects a device.
+
+### Fixed: App freeze after empty takes
+
+`AVCaptureSession.stopRunning()` on the main thread and a reused dead `AVAudioEngine`. Recorder + session generation + Idle recovery.
+
+### Fixed: Headset silent on Start
+
+`AVAudioEngine` + live `SFSpeechAudioBufferRecognitionRequest` switched HFP. Replaced with recorder + `SFSpeechURLRecognitionRequest`.
