@@ -35,10 +35,5 @@ struct VoiceDictationApp: App {
             }
         }
         .menuBarExtraStyle(.window)
-
-        Settings {
-            SettingsView()
-                .environmentObject(appState)
-        }
     }
 }

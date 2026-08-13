@@ -28,15 +28,15 @@ struct FloatingWindowView: View {
                 }
             }
         }
-        .padding(.horizontal, isExpanded ? 12 : 0)
+        .padding(.horizontal, isExpanded ? 14 : 0)
         .padding(.vertical, isExpanded ? 8 : 0)
-        .frame(height: 36)
+        .frame(height: AppTheme.pillHeight)
         .background(
             Capsule()
                 .fill(.ultraThinMaterial)
                 .overlay(Capsule().stroke(AppTheme.hairlineBorder, lineWidth: 1))
         )
-        .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
+        .shadow(color: .black.opacity(0.22), radius: 14, y: 5)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: isExpanded)
         .onHover { hovering in
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
@@ -67,18 +67,18 @@ struct FloatingWindowView: View {
                         ? 0.6
                         : floor + CGFloat(appState.audioLevel) * (0.4 + CGFloat(index % 3) * 0.15)
                     RoundedRectangle(cornerRadius: 1)
-                        .fill(Color.red)
-                        .frame(width: 2.5, height: 10)
+                        .fill(AppTheme.recording)
+                        .frame(width: 2.5, height: 12)
                         .scaleEffect(y: scale)
                         .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: appState.audioLevel)
                 }
             }
-            .frame(width: isExpanded ? nil : 36, height: 36)
+            .frame(width: isExpanded ? nil : AppTheme.pillHeight, height: AppTheme.pillHeight)
         } else {
             Image(systemName: appState.statusIcon)
-                .font(.system(size: 14))
-                .foregroundColor(appState.status == .error ? .red : AppTheme.accent)
-                .frame(width: 36, height: 36)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(appState.status == .error ? AppTheme.recording : AppTheme.accent)
+                .frame(width: AppTheme.pillHeight, height: AppTheme.pillHeight)
         }
     }
 
@@ -133,8 +133,8 @@ struct FloatingWindowView: View {
             Button(action: { appState.toggleRecording() }) {
                 Image(systemName: appState.status == .recording ? "stop.fill" : "waveform")
                     .font(.system(size: 12))
-                    .foregroundColor(appState.status == .recording ? .red : AppTheme.accent)
-                    .frame(width: 24, height: 24)
+                    .foregroundColor(appState.status == .recording ? AppTheme.recording : AppTheme.accent)
+                    .frame(width: 26, height: 26)
             }
             .buttonStyle(.borderless)
             .accessibilityLabel(appState.status == .recording ? "Stop recording" : "Start or cancel")
@@ -177,7 +177,7 @@ struct FloatingWindowView: View {
     // MARK: - Actions
 
     private func updatePanelSize() {
-        let width: CGFloat = isExpanded ? 300 : 36
+        let width: CGFloat = isExpanded ? 320 : AppTheme.pillHeight
         FloatingWindowController.shared.resizePanel(width: width)
     }
 

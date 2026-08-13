@@ -18,9 +18,9 @@ final class FloatingWindowController: ObservableObject {
     @Published var isVisible = false
 
     private let positionKey = "floatingWindowPosition"
-    private let idleWidth: CGFloat = 36
-    private let activeWidth: CGFloat = 300
-    private let panelHeight: CGFloat = 36
+    private let idleWidth: CGFloat = 40
+    private let activeWidth: CGFloat = 320
+    private let panelHeight: CGFloat = 40
 
     private init() {}
 
@@ -52,7 +52,7 @@ final class FloatingWindowController: ObservableObject {
             panel?.worksWhenModal = true
             panel?.acceptsMouseMovedEvents = true
             panel?.contentMinSize = NSSize(width: idleWidth, height: panelHeight)
-            panel?.contentMaxSize = NSSize(width: 340, height: panelHeight)
+            panel?.contentMaxSize = NSSize(width: 360, height: panelHeight)
             panel?.canBecomeVisibleWithoutLogin = true
 
             if let savedPosition = UserDefaults.standard.array(forKey: positionKey) as? [CGFloat],
@@ -91,7 +91,7 @@ final class FloatingWindowController: ObservableObject {
 
     func resizePanel(width: CGFloat) {
         guard let panel = panel else { return }
-        let clampedWidth = min(max(width, idleWidth), 340)
+        let clampedWidth = min(max(width, idleWidth), 360)
         let currentFrame = panel.frame
         let centerX = currentFrame.midX
         let newX = centerX - clampedWidth / 2

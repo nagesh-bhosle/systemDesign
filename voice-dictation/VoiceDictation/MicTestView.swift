@@ -70,6 +70,7 @@ struct MicTestView: View {
         }
         .padding(20)
         .frame(width: 380)
+        .background(.ultraThinMaterial)
         .onAppear {
             appState.refreshAudioInputs()
         }

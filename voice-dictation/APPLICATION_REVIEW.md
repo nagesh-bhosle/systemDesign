@@ -2,7 +2,7 @@
 
 Date: 2026-08-13 (updated for v0.4.0)  
 Headset restore snapshot: `voice-dictation-working` @ `c1c3ee7` (unchanged)  
-Product line: `main` @ v0.4.0 — see `PRODUCT_ROADMAP.md` and `CHANGELOG.md`.
+Product line: `main` @ v0.4.0 / v0.5.0 — see `PRODUCT_ROADMAP.md` and `CHANGELOG.md`.
 
 Restore that build:
 
@@ -42,16 +42,15 @@ User confirmed: **laptop mic and Bluetooth headset both record.**
 6. **Unsigned `./run.sh` rebuilds still break paste-at-cursor**  
    Accessibility TCC is per signature. After each rebuild: uncheck/check Voice Dictation, or codesign with a stable identity. Documented in `PRODUCT_ROADMAP.md`. `./run.sh install` is the stable daily install path.
 
-7. **Clipboard restore at 1.2s** — **Deferred.** Slow apps can paste the old clipboard. Prefer restoring only after a successful AX insert, or wait longer. Left unchanged to avoid paste regressions.
+7. **Clipboard restore** — **Addressed in 0.5.0.** AX insert restores immediately. Cmd+V waits until the focused field contains the transcript (or 2.5s). Skips restore if the pasteboard no longer holds our text.
 
 ### P2 — Robustness / polish
 
-8. **History / Settings sheets still sit on `MenuBarExtra`**  
-   Mic test was moved to a panel for that reason. History and Settings can glitch when the extra closes. Same `NSPanel` pattern if they misbehave.
+8. **History / Settings sheets** — **Addressed in 0.5.0.** Dedicated `NSPanel` windows, same as mic test.
 
 9. **`ExceptionCatcher` is unused** by the recorder path. Harmless; can stay as a guard if engine code returns.
 
-10. **Custom vocabulary** interpolates user lines into regex; odd characters are skipped or over-replaced.
+10. **Custom vocabulary** — **Addressed in 0.5.0.** Whole-word lookarounds, escaped templates, skip 1-character / punctuation-only lines.
 
 11. **`DictationStatus.error` is mostly unused** — failures go to Idle plus a caption.
 
@@ -71,9 +70,8 @@ User confirmed: **laptop mic and Bluetooth headset both record.**
 ## Suggested next work (do not mix into the working tag)
 
 1. Sparkle + notarization when a Developer ID and appcast host exist (`PRODUCT_ROADMAP.md`).
-2. Clipboard restore after confirmed AX insert (P1.7).
-3. Codesign every `run.sh` build with a stable identity so Accessibility survives.
-4. Optional: live partials **only** for built-in mic, keep recorder path for Bluetooth — easy to regress; keep one path unless you tag again after testing both mics.
+2. Codesign every `run.sh` build with a stable identity so Accessibility survives.
+3. Optional: live partials **only** for built-in mic, keep recorder path for Bluetooth — easy to regress; keep one path unless you tag again after testing both mics.
 
 ---
 

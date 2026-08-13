@@ -39,6 +39,15 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     case about = "About"
 
     var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .general: return "slider.horizontal.3"
+        case .enhancement: return "sparkles"
+        case .privacy: return "lock.shield"
+        case .about: return "info.circle"
+        }
+    }
 }
 
 struct SettingsView: View {
@@ -61,30 +70,35 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("Section", selection: $selectedTab) {
-                ForEach(SettingsTab.allCases) { tab in
-                    Text(tab.rawValue).tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding()
-
+        HStack(spacing: 0) {
+            sidebar
             Divider()
-
-            ScrollView {
-                Group {
-                    switch selectedTab {
-                    case .general: generalSection
-                    case .enhancement: enhancementSection
-                    case .privacy: privacySection
-                    case .about: aboutSection
-                    }
+            VStack(spacing: 0) {
+                HStack {
+                    Text(selectedTab.rawValue)
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    Spacer()
                 }
-                .padding()
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+
+                Divider()
+
+                ScrollView {
+                    Group {
+                        switch selectedTab {
+                        case .general: generalSection
+                        case .enhancement: enhancementSection
+                        case .privacy: privacySection
+                        case .about: aboutSection
+                        }
+                    }
+                    .padding(16)
+                }
             }
         }
-        .frame(width: 520, height: 560)
+        .frame(minWidth: 540, minHeight: 560)
+        .background(.ultraThinMaterial)
         .tint(AppTheme.accent)
         .onAppear {
             endpointDraft = appState.llmEndpoint
@@ -101,6 +115,39 @@ struct SettingsView: View {
         .sheet(isPresented: $showPrivacySheet) {
             PrivacyPolicySheet()
         }
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Voice Dictation")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 8)
+
+            ForEach(SettingsTab.allCases) { tab in
+                Button {
+                    selectedTab = tab
+                } label: {
+                    Label(tab.rawValue, systemImage: tab.icon)
+                        .font(.system(size: 13, weight: selectedTab == tab ? .semibold : .regular))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(selectedTab == tab ? AppTheme.accentMuted : Color.clear)
+                        )
+                        .foregroundColor(selectedTab == tab ? .primary : .secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(tab.rawValue)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .frame(width: 168)
+        .background(Color.primary.opacity(0.03))
     }
 
     // MARK: - General
@@ -192,7 +239,7 @@ struct SettingsView: View {
                     .onChange(of: vocabularyDraft) { _, newValue in
                         appState.saveCustomVocabulary(newValue)
                     }
-                Text("One word or phrase per line. Matching is case-insensitive; pasted text uses your capitalization.")
+                Text("One word or phrase per line (at least two characters). Matching is whole-word and case-insensitive; pasted text uses your capitalization. Regex characters are treated as plain text.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -418,7 +465,7 @@ struct SettingsView: View {
     private var aboutSection: some View {
         Form {
             Section("Voice Dictation") {
-                Text("Version 0.4.0")
+                Text("Version 0.5.0")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Text("Speech recognition runs on your Mac. Press the global hotkey to start and stop dictation. Text is pasted at your cursor or copied to the clipboard.")

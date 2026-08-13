@@ -67,12 +67,14 @@ final class TextInserter {
         // so the caret stays in Notepad / Safari / the search field.
         FloatingWindowController.shared.resignKey()
 
-        let finish: (InsertResult) -> Void = { result in
+        let finish: (InsertResult, PasteMechanism) -> Void = { result, mechanism in
             self.lastInsertResult = result
             if result == .pasted, self.restoreClipboardEnabled {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                    self.restoreClipboardContents(previousClipboard)
-                }
+                self.scheduleClipboardRestore(
+                    previous: previousClipboard,
+                    transcript: text,
+                    mechanism: mechanism
+                )
             }
             if result == .needsAccessibilityRefresh {
                 self.showAccessibilityRefreshNotification(text)
@@ -85,7 +87,18 @@ final class TextInserter {
         attemptInsert(text: text, allowActivateTarget: true, completion: finish)
     }
 
-    private func attemptInsert(text: String, allowActivateTarget: Bool, completion: @escaping (InsertResult) -> Void) {
+    private enum PasteMechanism {
+        /// AX set the field value; the clipboard was never consumed.
+        case accessibility
+        /// Cmd+V; wait until the target app reads the pasteboard.
+        case commandV
+    }
+
+    private func attemptInsert(
+        text: String,
+        allowActivateTarget: Bool,
+        completion: @escaping (InsertResult, PasteMechanism) -> Void
+    ) {
         let ourPID = pid_t(ProcessInfo.processInfo.processIdentifier)
         let focused = focusedAXElement()
         let focusedPID = focused.map { axPid($0) } ?? 0
@@ -95,7 +108,7 @@ final class TextInserter {
             if insertTextViaAccessibility(text, into: element) {
                 lastTargetPID = focusedPID
                 logger.info("Inserted via Accessibility into focused field")
-                completion(.pasted)
+                completion(.pasted, .accessibility)
                 return
             }
         }
@@ -119,15 +132,15 @@ final class TextInserter {
         if AXIsProcessTrusted(), postCommandVToSession() {
             lastTargetPID = focusedIsOtherApp ? focusedPID : (resolvedInsertionTarget()?.processIdentifier ?? 0)
             logger.info("Posted session Cmd+V for focused cursor")
-            completion(.pasted)
+            completion(.pasted, .commandV)
             return
         }
 
         lastTargetPID = 0
         if !AXIsProcessTrusted() {
-            completion(.needsAccessibilityRefresh)
+            completion(.needsAccessibilityRefresh, .commandV)
         } else {
-            completion(.clipboardOnly)
+            completion(.clipboardOnly, .commandV)
         }
     }
 
@@ -290,6 +303,63 @@ final class TextInserter {
             pngData: pb.data(forType: .png),
             fileURLs: (pb.readObjects(forClasses: [NSURL.self], options: nil) as? [URL]) ?? []
         )
+    }
+
+    private func scheduleClipboardRestore(
+        previous: ClipboardContents,
+        transcript: String,
+        mechanism: PasteMechanism
+    ) {
+        switch mechanism {
+        case .accessibility:
+            restoreIfClipboardStillHolds(transcript, previous: previous)
+        case .commandV:
+            waitForPasteThenRestore(transcript: transcript, previous: previous)
+        }
+    }
+
+    /// Restore only if the pasteboard still holds our transcript (the user may have copied something else).
+    private func restoreIfClipboardStillHolds(_ transcript: String, previous: ClipboardContents) {
+        let current = NSPasteboard.general.string(forType: .string)
+        guard current == transcript else { return }
+        restoreClipboardContents(previous)
+    }
+
+    private func waitForPasteThenRestore(transcript: String, previous: ClipboardContents) {
+        let deadline = Date().addingTimeInterval(2.5)
+        func tick() {
+            if focusedTextContains(transcript) || Date() >= deadline {
+                restoreIfClipboardStillHolds(transcript, previous: previous)
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                tick()
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            tick()
+        }
+    }
+
+    private func focusedTextContains(_ snippet: String) -> Bool {
+        let needle = String(snippet.prefix(80))
+        guard !needle.isEmpty, let haystack = focusedElementString() else { return false }
+        return haystack.contains(needle)
+    }
+
+    private func focusedElementString() -> String? {
+        guard let element = focusedAXElement() else { return nil }
+        var valueRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef) == .success,
+           let value = valueRef as? String {
+            return value
+        }
+        var selectedRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &selectedRef) == .success,
+           let selected = selectedRef as? String {
+            return selected
+        }
+        return nil
     }
 
     private func restoreClipboardContents(_ contents: ClipboardContents) {

@@ -617,37 +617,7 @@ final class AppState: ObservableObject {
     }
 
     func applyCustomVocabulary(to text: String) -> String {
-        let items = customVocabulary
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .sorted { $0.count > $1.count }
-
-        guard !items.isEmpty else { return text }
-
-        var result = text
-        for item in items {
-            let escaped = NSRegularExpression.escapedPattern(for: item)
-            let spacedPattern = escaped.replacingOccurrences(of: "\\ ", with: "\\s+")
-            let patterns = [
-                "(?i)\\b\(escaped)\\b",
-                "(?i)\(spacedPattern)"
-            ]
-            for pattern in patterns {
-                guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
-                let range = NSRange(result.startIndex..., in: result)
-                result = regex.stringByReplacingMatches(in: result, range: range, withTemplate: item)
-            }
-            let collapsed = item.replacingOccurrences(of: " ", with: "")
-            if collapsed != item {
-                let collapsedEscaped = NSRegularExpression.escapedPattern(for: collapsed)
-                if let regex = try? NSRegularExpression(pattern: "(?i)\\b\(collapsedEscaped)\\b") {
-                    let range = NSRange(result.startIndex..., in: result)
-                    result = regex.stringByReplacingMatches(in: result, range: range, withTemplate: item)
-                }
-            }
-        }
-        return result
+        VocabularyApplier.apply(vocabulary: customVocabulary, to: text)
     }
 
     private func finishWithText(_ text: String, errorNote: String? = nil) {

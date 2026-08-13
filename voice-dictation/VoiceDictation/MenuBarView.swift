@@ -9,55 +9,56 @@ import SwiftUI
 
 struct MenuBarView: View {
     @EnvironmentObject var appState: AppState
-    @Environment(\.openSettings) private var openSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var showHistory = false
     @State private var showCopiedFeedback = false
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 12) {
             header
             pasteAtCursorHelp
-            micCheckButton
             primaryButton
             transcriptionHint
-            undoButton
             transcriptCard
             messageArea
-            floatingToggle
+            secondaryRow
             footer
         }
-        .padding(14)
-        .frame(width: 290)
-        .background(.ultraThinMaterial)
+        .padding(16)
+        .frame(width: AppTheme.menuWidth)
+        .background {
+            ZStack {
+                Color.black.opacity(0.18)
+                Rectangle().fill(.ultraThinMaterial)
+            }
+        }
         .onAppear {
             appState.refreshPermissionState()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             appState.refreshPermissionState()
         }
-        .sheet(isPresented: $showHistory) {
-            HistoryView()
-                .environmentObject(appState)
-        }
     }
 
     // MARK: - Header
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 8) {
+            Image(nsImage: MenuBarIconRenderer.makeTemplateImage())
+                .renderingMode(.template)
+                .foregroundColor(AppTheme.accent)
+                .frame(width: 18, height: 18)
             Text("Voice Dictation")
-                .font(.headline)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
             Spacer()
             statusChip
         }
     }
 
     private var statusChip: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 5) {
             if appState.status == .recording && !reduceMotion {
                 Circle()
-                    .fill(Color.red)
+                    .fill(AppTheme.recording)
                     .frame(width: 6, height: 6)
                     .symbolEffect(.pulse, options: .repeating)
             } else {
@@ -66,14 +67,14 @@ struct MenuBarView: View {
                     .frame(width: 6, height: 6)
             }
             Text(appState.status.rawValue)
-                .font(.caption2)
+                .font(.system(size: 10, weight: .medium, design: .rounded))
                 .foregroundColor(.secondary)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(
             Capsule()
-                .fill(chipColor.opacity(0.12))
+                .fill(chipColor.opacity(0.14))
                 .overlay(Capsule().stroke(AppTheme.hairlineBorder, lineWidth: 1))
         )
         .accessibilityLabel("Status: \(appState.status.rawValue)")
@@ -81,64 +82,57 @@ struct MenuBarView: View {
 
     private var chipColor: Color {
         switch appState.status {
-        case .recording: return .red
-        case .error: return .red
-        case .enhancing: return AppTheme.accent
+        case .recording: return AppTheme.recording
+        case .error: return AppTheme.recording
+        case .enhancing, .transcribing: return AppTheme.accent
         default: return .secondary
         }
     }
 
     private var pasteAtCursorHelp: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(appState.accessibilityGranted ? Color.green : Color.orange)
-                    .frame(width: 7, height: 7)
-                Text(appState.accessibilityGranted ? "Paste at cursor is ready" : "Paste at cursor needs Accessibility")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            Button("Open Accessibility Settings") {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(appState.accessibilityGranted ? AppTheme.success : AppTheme.accent)
+                .frame(width: 7, height: 7)
+            Text(appState.accessibilityGranted ? "Paste at cursor ready" : "Accessibility needed to paste")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Button("Fix") {
                 PermissionHelper.openAccessibilitySettings()
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(.plain)
+            .font(.caption.weight(.medium))
+            .foregroundColor(AppTheme.accent)
             .accessibilityLabel("Open Accessibility Settings")
-            if !appState.accessibilityGranted {
-                Text("Turn Voice Dictation off, then on, in that list.")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            Capsule(style: .continuous)
+                .fill(AppTheme.cardBackground)
+                .overlay(Capsule(style: .continuous).stroke(AppTheme.hairlineBorder, lineWidth: 1))
+        )
     }
 
     // MARK: - Primary Button
 
-    private var micCheckButton: some View {
-        Button("Check microphone") {
-            MicTestWindowController.shared.show(appState: appState)
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .disabled(appState.status == .recording || appState.status == .transcribing)
-        .accessibilityLabel("Check microphone")
-    }
-
     private var primaryButton: some View {
         Button(action: { appState.toggleRecording() }) {
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Image(systemName: primaryButtonSymbol)
+                    .font(.system(size: 13, weight: .semibold))
                 Text(primaryButtonTitle)
-                    .fontWeight(.medium)
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
+            .padding(.vertical, 10)
         }
         .buttonStyle(.plain)
         .background(
             Capsule()
-                .fill(appState.status == .recording ? Color.red : AppTheme.accent)
+                .fill(appState.status == .recording ? AppTheme.recording : AppTheme.accent)
         )
         .foregroundColor(appState.status == .recording ? .white : .black.opacity(0.85))
         .accessibilityLabel(primaryButtonTitle)
@@ -175,46 +169,32 @@ struct MenuBarView: View {
         }
     }
 
-    private var undoButton: some View {
-        Button("Undo last paste") {
-            appState.undoLastPaste()
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .disabled(appState.status == .recording || appState.status == .transcribing || appState.status == .enhancing)
-        .accessibilityLabel("Undo last paste")
-    }
-
     // MARK: - Transcript Card
 
     @ViewBuilder
     private var transcriptCard: some View {
         if !appState.lastTranscript.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Last transcript")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    Button(action: copyTranscript) {
-                        Image(systemName: showCopiedFeedback ? "checkmark" : "doc.on.doc")
+            ThemeCard(padding: 10) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Last transcript")
                             .font(.caption)
-                            .foregroundColor(showCopiedFeedback ? .green : .secondary)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Button(action: copyTranscript) {
+                            Image(systemName: showCopiedFeedback ? "checkmark" : "doc.on.doc")
+                                .font(.caption)
+                                .foregroundColor(showCopiedFeedback ? AppTheme.success : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(showCopiedFeedback ? "Copied" : "Copy transcript")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(showCopiedFeedback ? "Copied" : "Copy transcript")
+                    Text(appState.lastTranscript)
+                        .font(.callout)
+                        .lineLimit(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Text(appState.lastTranscript)
-                    .font(.callout)
-                    .lineLimit(3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(10)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(AppTheme.cardBackground)
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(AppTheme.hairlineBorder, lineWidth: 1))
-            )
         }
     }
 
@@ -225,7 +205,7 @@ struct MenuBarView: View {
         if !appState.errorMessage.isEmpty {
             Text(appState.errorMessage)
                 .font(.caption)
-                .foregroundColor(.red)
+                .foregroundColor(AppTheme.recording)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else if !appState.statusMessage.isEmpty {
             Text(appState.statusMessage)
@@ -235,41 +215,56 @@ struct MenuBarView: View {
         }
     }
 
-    // MARK: - Floating Toggle
-
-    private var floatingToggle: some View {
-        Toggle(isOn: Binding(
-            get: { appState.showFloatingWindow },
-            set: { newValue in
-                appState.saveShowFloatingWindow(newValue)
+    private var secondaryRow: some View {
+        HStack(spacing: 8) {
+            Button("Check mic") {
+                MicTestWindowController.shared.show(appState: appState)
             }
-        )) {
-            Text("Show floating bar")
-                .font(.caption)
+            .buttonStyle(.plain)
+            .font(.caption.weight(.medium))
+            .foregroundColor(.secondary)
+            .disabled(appState.status == .recording || appState.status == .transcribing)
+            .accessibilityLabel("Check microphone")
+
+            Text("·")
+                .foregroundColor(.secondary.opacity(0.5))
+
+            Button("Undo paste") {
+                appState.undoLastPaste()
+            }
+            .buttonStyle(.plain)
+            .font(.caption.weight(.medium))
+            .foregroundColor(.secondary)
+            .disabled(appState.status == .recording || appState.status == .transcribing || appState.status == .enhancing)
+            .accessibilityLabel("Undo last paste")
+
+            Spacer()
+
+            Toggle(isOn: Binding(
+                get: { appState.showFloatingWindow },
+                set: { appState.saveShowFloatingWindow($0) }
+            )) {
+                EmptyView()
+            }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .labelsHidden()
+            .accessibilityLabel("Show floating bar")
+            .help("Show floating bar")
         }
-        .toggleStyle(.switch)
-        .controlSize(.small)
-        .accessibilityLabel("Show floating bar")
     }
 
     // MARK: - Footer
 
     private var footer: some View {
-        HStack {
-            Button(action: openSettingsWithActivation) {
-                Image(systemName: "gearshape")
+        HStack(spacing: 4) {
+            footerIconButton(symbol: "gearshape", label: "Open settings") {
+                AppPanels.showSettings(appState: appState)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Open settings")
-
-            Button(action: { showHistory = true }) {
-                Image(systemName: "clock.arrow.circlepath")
+            footerIconButton(symbol: "clock.arrow.circlepath", label: "Open history") {
+                AppPanels.showHistory(appState: appState)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Open history")
-
             Spacer()
-
             Button("Quit") {
                 NSApplication.shared.terminate(nil)
             }
@@ -278,13 +273,24 @@ struct MenuBarView: View {
             .font(.caption)
             .accessibilityLabel("Quit Voice Dictation")
         }
+        .padding(.top, 4)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(AppTheme.hairlineBorder)
+                .frame(height: 1)
+        }
     }
 
-    // MARK: - Actions
-
-    private func openSettingsWithActivation() {
-        NSApp.activate(ignoringOtherApps: true)
-        openSettings()
+    private func footerIconButton(symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     private func copyTranscript() {

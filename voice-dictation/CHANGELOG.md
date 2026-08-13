@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 — 2026-08-13
+
+Correctness and visual polish. Audio path unchanged (`AVAudioRecorder` + file STT after Stop).
+
+- Clipboard restore: after Accessibility insert, restore immediately. After Cmd+V, wait until the target field contains the text (or 2.5s). Never restore if the user already copied something else.
+- History and Settings open in dedicated windows (same pattern as Check microphone), not sheets on the menu extra.
+- Custom vocabulary uses whole-word matching, escaped replacements (`$` / `\` are literal), and skips one-character / punctuation-only lines.
+- Richer menu extra, Settings sidebar, History cards, and floating pill.
+
 ## 0.4.0 — 2026-08-13
 
 Installable-product contract and safe correctness fixes on the headset-safe recorder path. Dictation is still `AVAudioRecorder` + `SFSpeechURLRecognitionRequest` after Stop.

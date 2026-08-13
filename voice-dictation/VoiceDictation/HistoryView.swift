@@ -10,6 +10,7 @@ import SwiftUI
 struct HistoryView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) private var dismiss
+    var onClose: (() -> Void)? = nil
     @State private var searchText: String = ""
     @State private var showClearConfirmation = false
     @State private var copiedEntryID: UUID?
@@ -29,14 +30,22 @@ struct HistoryView: View {
             header
             Divider()
 
-            HStack {
+            HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(.secondary)
-                TextField("Search transcripts...", text: $searchText)
-                    .textFieldStyle(.roundedBorder)
+                TextField("Search transcripts", text: $searchText)
+                    .textFieldStyle(.plain)
                     .accessibilityLabel("Search transcripts")
             }
-            .padding(12)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(AppTheme.cardBackground)
+                    .overlay(Capsule(style: .continuous).stroke(AppTheme.hairlineBorder, lineWidth: 1))
+            )
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
 
             if filteredHistory.isEmpty {
                 emptyState
@@ -54,14 +63,16 @@ struct HistoryView: View {
                             )
                         }
                     }
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
                 }
             }
 
             Divider()
             footer
         }
-        .frame(width: 380, height: 440)
+        .frame(minWidth: 380, minHeight: 440)
+        .background(.ultraThinMaterial)
         .alert("Clear All History?", isPresented: $showClearConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Clear All", role: .destructive) {
@@ -75,22 +86,31 @@ struct HistoryView: View {
     private var header: some View {
         HStack {
             Text("History")
-                .font(.headline)
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
             Spacer()
-            Button("Done") { dismiss() }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+            Button("Done") { close() }
+                .buttonStyle(.plain)
+                .font(.caption.weight(.medium))
+                .foregroundColor(AppTheme.accent)
                 .accessibilityLabel("Close history")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    private func close() {
+        if let onClose {
+            onClose()
+        } else {
+            dismiss()
+        }
     }
 
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "waveform")
-                .font(.system(size: 48))
-                .foregroundColor(.secondary.opacity(0.5))
+                .font(.system(size: 40, weight: .light))
+                .foregroundColor(AppTheme.accent.opacity(0.7))
             Text(searchText.isEmpty ? "No transcripts yet" : "No results found")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
@@ -115,7 +135,8 @@ struct HistoryView: View {
             .disabled(appState.history.isEmpty)
             .accessibilityLabel("Clear all history")
         }
-        .padding(8)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 
     private func copyEntry(_ entry: TranscriptEntry) {
@@ -188,12 +209,20 @@ struct HistoryRow: View {
                 .lineLimit(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(10)
+        .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 12)
+            AppTheme.cardShape()
                 .fill(AppTheme.cardBackground)
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(AppTheme.hairlineBorder, lineWidth: 1))
+                .overlay(AppTheme.cardShape().stroke(AppTheme.hairlineBorder, lineWidth: 1))
         )
+        .overlay(alignment: .leading) {
+            if entry.isPinned {
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(AppTheme.accent)
+                    .frame(width: 2)
+                    .padding(.vertical, 10)
+            }
+        }
         .contentShape(Rectangle())
         .onTapGesture { onCopy() }
         .accessibilityLabel("Transcript from \(entry.relativeTime)")
