@@ -518,10 +518,6 @@ final class AppState: ObservableObject {
                         }
                     }
                 }
-
-                if self.playSounds {
-                    SoundPlayer.shared.playRecordingStart()
-                }
             }
         }
     }
@@ -541,9 +537,6 @@ final class AppState: ObservableObject {
         status = .transcribing
         liveTranscript = ""
         speechRecognizer.stopRecognition()
-        if playSounds {
-            SoundPlayer.shared.playRecordingStop()
-        }
 
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 5_000_000_000)

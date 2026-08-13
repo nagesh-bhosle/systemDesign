@@ -2,7 +2,9 @@
 //  SpeechRecognizerService.swift
 //  VoiceDictation
 //
-//  On-device speech recognition using Apple's SFSpeechRecognizer.
+//  Records with AVAudioRecorder (same path as the working mic test) so Bluetooth
+//  headsets stay connected, then transcribes the file with SFSpeechRecognizer.
+//  AVAudioEngine input is not used: it switches BT headsets into HFP and goes silent.
 //
 
 import Foundation
@@ -45,10 +47,10 @@ enum SpeechRecognizerError: LocalizedError {
 final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
     private let logger = Logger(subsystem: "com.nagesh.voicedictation", category: "SpeechRecognizer")
     private var speechRecognizer: SFSpeechRecognizer?
-    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
-    private var audioEngine = AVAudioEngine()
-    private var tapInstalled = false
+    private var recorder: AVAudioRecorder?
+    private var meterTimer: Timer?
+    private var recordingURL: URL?
     private var sessionGeneration: UInt64 = 0
 
     private let stateQueue = DispatchQueue(label: "com.nagesh.voicedictation.speech-state")
@@ -88,35 +90,19 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
 
     deinit {
         cancel()
-        stopCaptureGraph()
     }
-
-    // MARK: - SFSpeechRecognizerDelegate
 
     func speechRecognizer(_ speechRecognizer: SFSpeechRecognizer, availabilityDidChange available: Bool) {
         if !available {
             logger.warning("Speech recognizer became unavailable mid-session")
-            stateQueue.sync {
-                if !_hasCompleted {
-                    _hasCompleted = true
-                    _isRunning = false
-                    let cb = _completion
-                    _completion = nil
-                    DispatchQueue.main.async {
-                        cb?(.failure(SpeechRecognizerError.recognizerUnavailable))
-                    }
-                }
-            }
-        } else {
-            logger.info("Speech recognizer became available")
+            let generation = stateQueue.sync { sessionGeneration }
+            finish(with: .failure(SpeechRecognizerError.recognizerUnavailable), generation: generation)
         }
     }
 
     private var lastPartialText: String {
         stateQueue.sync { _lastPartialText }
     }
-
-    // MARK: - Permission
 
     func requestAuthorization(completion: @escaping (PermissionAuthResult) -> Void) {
         PermissionHelper.requestMicrophone { granted in
@@ -154,6 +140,7 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             completion(.failure(SpeechRecognizerError.recognizerUnavailable))
             return
         }
+        _ = speechRecognizer
 
         stateQueue.sync {
             _hasCompleted = false
@@ -162,36 +149,120 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             _lastPartialText = ""
         }
 
-        recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
-        guard let recognitionRequest = recognitionRequest else {
-            finish(with: .failure(SpeechRecognizerError.couldNotCreateRequest), generation: generation)
+        do {
+            try startRecorder()
+        } catch {
+            finish(with: .failure(SpeechRecognizerError.audioEngineStartFailed(error)), generation: generation)
+        }
+    }
+
+    func stopRecognition() {
+        let running = stateQueue.sync { _isRunning }
+        guard running else { return }
+
+        let generation = stateQueue.sync { sessionGeneration }
+        stopRecorderKeepingFile()
+        stateQueue.sync { _isRunning = false }
+        transcribeRecordingFile(generation: generation)
+    }
+
+    func cancel() {
+        _ = beginNewSession(notifyPrevious: true)
+        deleteRecordingFile()
+    }
+
+    func resetSession() {
+        _ = beginNewSession(notifyPrevious: false)
+        deleteRecordingFile()
+        configureRecognizer(localeIdentifier: localeIdentifier)
+    }
+
+    // MARK: - Recorder (headset-safe)
+
+    private func startRecorder() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voicedictation-\(UUID().uuidString).caf")
+        let settings: [String: Any] = [
+            AVFormatIDKey: Int(kAudioFormatLinearPCM),
+            AVSampleRateKey: 44100,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false
+        ]
+        let recorder = try AVAudioRecorder(url: url, settings: settings)
+        recorder.isMeteringEnabled = true
+        guard recorder.prepareToRecord(), recorder.record() else {
+            throw SpeechRecognizerError.microphoneBusy
+        }
+        self.recorder = recorder
+        self.recordingURL = url
+        startMetering()
+    }
+
+    private func startMetering() {
+        meterTimer?.invalidate()
+        meterTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            guard let self, let recorder = self.recorder else { return }
+            recorder.updateMeters()
+            let db = recorder.averagePower(forChannel: 0)
+            let level = max(0, min(1, (db + 55) / 55))
+            self.onAudioLevel?(level)
+        }
+        if let meterTimer {
+            RunLoop.main.add(meterTimer, forMode: .common)
+        }
+    }
+
+    private func stopRecorderKeepingFile() {
+        meterTimer?.invalidate()
+        meterTimer = nil
+        recorder?.stop()
+        recorder = nil
+        DispatchQueue.main.async { [weak self] in
+            self?.onAudioLevel?(0)
+        }
+    }
+
+    private func deleteRecordingFile() {
+        stopRecorderKeepingFile()
+        if let recordingURL {
+            try? FileManager.default.removeItem(at: recordingURL)
+        }
+        recordingURL = nil
+    }
+
+    private func transcribeRecordingFile(generation: UInt64) {
+        guard isCurrentSession(generation) else { return }
+        guard let speechRecognizer, let url = recordingURL else {
+            finish(with: .success(""), generation: generation)
             return
         }
-        recognitionRequest.shouldReportPartialResults = true
-        recognitionRequest.taskHint = .dictation
-        recognitionRequest.addsPunctuation = true
+
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? 0
+        if fileSize < 2000 {
+            logger.info("Recording too small (\(fileSize) bytes) — treating as no speech")
+            finish(with: .success(""), generation: generation)
+            return
+        }
+
+        let request = SFSpeechURLRecognitionRequest(url: url)
+        request.shouldReportPartialResults = true
+        request.taskHint = .dictation
+        request.addsPunctuation = true
 
         if requiresOnDevice {
             if speechRecognizer.supportsOnDeviceRecognition {
-                recognitionRequest.requiresOnDeviceRecognition = true
+                request.requiresOnDeviceRecognition = true
             } else {
-                logger.warning("On-device recognition not supported — falling back to server")
                 onDeviceFallbackMessage = SpeechRecognizerError.onDeviceUnavailable.errorDescription
-                recognitionRequest.requiresOnDeviceRecognition = false
+                request.requiresOnDeviceRecognition = false
             }
         } else {
-            recognitionRequest.requiresOnDeviceRecognition = false
+            request.requiresOnDeviceRecognition = false
         }
 
-        do {
-            try beginInputTap(bufferSize: 1024, appendToRecognizer: true)
-        } catch {
-            rebuildEngine()
-            finish(with: .failure(SpeechRecognizerError.audioEngineStartFailed(error)), generation: generation)
-            return
-        }
-
-        recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
+        recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
             guard self.isCurrentSession(generation) else { return }
 
@@ -211,38 +282,17 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
                 self.handleRecognitionError(error, generation: generation)
             }
         }
-    }
 
-    func stopRecognition() {
-        let running = stateQueue.sync { _isRunning }
-        guard running else { return }
-
-        recognitionRequest?.endAudio()
-        stopCaptureGraph()
-        stateQueue.sync { _isRunning = false }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
             guard let self else { return }
-            let generation = self.stateQueue.sync { self.sessionGeneration }
-            let shouldFinish = self.stateQueue.sync { !self._hasCompleted }
+            let shouldFinish = self.stateQueue.sync { !self._hasCompleted && self.sessionGeneration == generation }
             if shouldFinish {
                 self.finish(with: .success(self.lastPartialText), generation: generation)
             }
         }
     }
 
-    func cancel() {
-        _ = beginNewSession(notifyPrevious: true)
-        rebuildEngine()
-    }
-
-    func resetSession() {
-        _ = beginNewSession(notifyPrevious: false)
-        rebuildEngine()
-        configureRecognizer(localeIdentifier: localeIdentifier)
-    }
-
-    // MARK: - Private
+    // MARK: - Session
 
     private func isCurrentSession(_ generation: UInt64) -> Bool {
         stateQueue.sync { sessionGeneration == generation }
@@ -251,49 +301,10 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
     @discardableResult
     private func beginNewSession(notifyPrevious: Bool) -> UInt64 {
         cancelRecognitionIfNeeded(notify: notifyPrevious)
-        stopCaptureGraph()
+        stopRecorderKeepingFile()
         return stateQueue.sync { () -> UInt64 in
             sessionGeneration += 1
             return sessionGeneration
-        }
-    }
-
-    private func rebuildEngine() {
-        stopCaptureGraph()
-        audioEngine = AVAudioEngine()
-        tapInstalled = false
-    }
-
-    private func beginInputTap(bufferSize: AVAudioFrameCount, appendToRecognizer: Bool) throws {
-        do {
-            try ExceptionCatcher.run { errorPtr in
-                if self.tapInstalled {
-                    self.audioEngine.inputNode.removeTap(onBus: 0)
-                    self.tapInstalled = false
-                }
-                self.audioEngine.inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: nil) { [weak self] buffer, _ in
-                    guard let self else { return }
-                    if appendToRecognizer {
-                        self.recognitionRequest?.append(buffer)
-                    }
-                    self.publishAudioLevel(from: buffer)
-                }
-                self.tapInstalled = true
-                do {
-                    try self.audioEngine.start()
-                } catch {
-                    errorPtr?.pointee = error as NSError
-                }
-            }
-        } catch {
-            stopCaptureGraph()
-            throw error
-        }
-
-        let format = audioEngine.inputNode.outputFormat(forBus: 0)
-        if format.channelCount == 0 || format.sampleRate == 0 {
-            stopCaptureGraph()
-            throw SpeechRecognizerError.invalidAudioFormat
         }
     }
 
@@ -309,36 +320,11 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
         }
         let task = recognitionTask
         recognitionTask = nil
-        recognitionRequest = nil
         task?.cancel()
         if shouldNotify, let callback {
             DispatchQueue.main.async {
                 callback(.failure(SpeechRecognizerError.cancelled))
             }
-        }
-    }
-
-    /// Stop the hardware graph without `reset()` or `prepare()`, which can abort.
-    private func stopCaptureGraph() {
-        do {
-            try ExceptionCatcher.run { _ in
-                if self.tapInstalled {
-                    self.audioEngine.inputNode.removeTap(onBus: 0)
-                }
-                if self.audioEngine.isRunning {
-                    self.audioEngine.stop()
-                }
-            }
-        } catch {
-            logger.warning("Audio teardown: \(error.localizedDescription, privacy: .public)")
-        }
-        tapInstalled = false
-    }
-
-    private func publishAudioLevel(from buffer: AVAudioPCMBuffer) {
-        let level = AudioLevel.rms(from: buffer)
-        DispatchQueue.main.async { [weak self] in
-            self?.onAudioLevel?(level)
         }
     }
 
@@ -358,9 +344,12 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             return callback
         }
 
-        stopCaptureGraph()
         recognitionTask = nil
-        recognitionRequest = nil
+        stopRecorderKeepingFile()
+        if let recordingURL {
+            try? FileManager.default.removeItem(at: recordingURL)
+        }
+        recordingURL = nil
 
         DispatchQueue.main.async {
             cb?(result)
@@ -376,13 +365,11 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
 
         let partial = lastPartialText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !partial.isEmpty {
-            logger.info("Recognition ended with error but partial text exists — using partial")
             finish(with: .success(partial), generation: generation)
             return
         }
 
         if isNoSpeechError(nsError) {
-            logger.info("No speech detected (code \(nsError.code)) — treating as empty result")
             finish(with: .success(""), generation: generation)
             return
         }
