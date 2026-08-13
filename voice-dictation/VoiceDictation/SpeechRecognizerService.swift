@@ -45,6 +45,11 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
+    private var tapInstalled = false
+    /// Soft gain so quiet laptop mics still reach the recognizer. Clipped to [-1, 1].
+    private let inputGain: Float = 4.0
+
+    var preferredInputUID: String = ""
 
     private let stateQueue = DispatchQueue(label: "com.nagesh.voicedictation.speech-state")
     private var _completion: ((Result<String, Error>) -> Void)?
@@ -172,6 +177,8 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             return
         }
         recognitionRequest.shouldReportPartialResults = true
+        recognitionRequest.taskHint = .dictation
+        recognitionRequest.addsPunctuation = true
 
         if requiresOnDevice {
             if speechRecognizer.supportsOnDeviceRecognition {
@@ -188,48 +195,50 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
         recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
             guard let self = self else { return }
 
-            if let error = error {
-                let nsError = error as NSError
-                if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
-                    self.finish(with: .failure(SpeechRecognizerError.cancelled))
-                    return
-                }
-                self.finish(with: .failure(SpeechRecognizerError.recognitionFailed(error)))
-                return
-            }
-
             if let result = result {
                 let text = result.bestTranscription.formattedString
                 if result.isFinal {
                     self.finish(with: .success(text))
-                } else {
-                    self.stateQueue.sync { self._lastPartialText = text }
-                    DispatchQueue.main.async {
-                        self.onPartialResult?(text)
-                    }
+                    return
                 }
+                self.stateQueue.sync { self._lastPartialText = text }
+                DispatchQueue.main.async {
+                    self.onPartialResult?(text)
+                }
+            }
+
+            if let error = error {
+                self.handleRecognitionError(error)
             }
         }
 
         let inputNode = audioEngine.inputNode
+        audioEngine.prepare()
+        if !preferredInputUID.isEmpty {
+            AudioInputManager.apply(uid: preferredInputUID, to: inputNode)
+        }
+        enableVoiceProcessingIfPossible(on: inputNode)
+
         let recordingFormat = inputNode.outputFormat(forBus: 0)
 
         guard recordingFormat.channelCount > 0, recordingFormat.sampleRate > 0 else {
+            teardownEngine()
             finish(with: .failure(SpeechRecognizerError.invalidAudioFormat))
             return
         }
 
-        inputNode.removeTap(onBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
-            self?.recognitionRequest?.append(buffer)
-            self?.publishAudioLevel(from: buffer)
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: recordingFormat) { [weak self] buffer, _ in
+            guard let self else { return }
+            let boosted = self.boostedBuffer(buffer, gain: self.inputGain)
+            self.recognitionRequest?.append(boosted)
+            self.publishAudioLevel(from: boosted)
         }
+        tapInstalled = true
 
-        audioEngine.prepare()
         do {
             try audioEngine.start()
         } catch {
-            inputNode.removeTap(onBus: 0)
+            teardownEngine()
             finish(with: .failure(SpeechRecognizerError.audioEngineStartFailed(error)))
         }
     }
@@ -239,11 +248,8 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             guard _isRunning else { return }
         }
 
-        if audioEngine.isRunning {
-            audioEngine.inputNode.removeTap(onBus: 0)
-            audioEngine.stop()
-        }
         recognitionRequest?.endAudio()
+        teardownEngine()
 
         stateQueue.sync { _isRunning = false }
 
@@ -279,10 +285,13 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest = nil
-        if audioEngine.isRunning {
-            audioEngine.inputNode.removeTap(onBus: 0)
-            audioEngine.stop()
-        }
+        teardownEngine()
+    }
+
+    /// Tear down the audio graph so the next recording can start even after a failed session.
+    func resetSession() {
+        cancel()
+        teardownEngine()
     }
 
     // MARK: - Private
@@ -298,7 +307,7 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             sum += sample * sample
         }
         let rms = sqrt(sum / Float(frameLength))
-        let level = min(1.0, rms * 12)
+        let level = min(1.0, rms * 8)
         DispatchQueue.main.async { [weak self] in
             self?.onAudioLevel?(level)
         }
@@ -319,15 +328,82 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             return callback
         }
 
-        if audioEngine.isRunning {
-            audioEngine.inputNode.removeTap(onBus: 0)
-            audioEngine.stop()
-        }
+        teardownEngine()
         recognitionTask = nil
         recognitionRequest = nil
 
         DispatchQueue.main.async {
             cb?(result)
         }
+    }
+
+    private func handleRecognitionError(_ error: Error) {
+        let nsError = error as NSError
+        if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
+            finish(with: .failure(SpeechRecognizerError.cancelled))
+            return
+        }
+
+        let partial = lastPartialText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !partial.isEmpty {
+            logger.info("Recognition ended with error but partial text exists — using partial")
+            finish(with: .success(partial))
+            return
+        }
+
+        if isNoSpeechError(nsError) {
+            logger.info("No speech detected (code \(nsError.code)) — treating as empty result")
+            finish(with: .success(""))
+            return
+        }
+
+        finish(with: .failure(SpeechRecognizerError.recognitionFailed(error)))
+    }
+
+    private func isNoSpeechError(_ error: NSError) -> Bool {
+        if error.domain == "kAFAssistantErrorDomain" {
+            // 1110 no speech, 203 retry/timeout, 1101/1107 recognition failure with silence
+            return [1110, 1101, 1107, 203, 1700].contains(error.code)
+        }
+        let description = error.localizedDescription.lowercased()
+        return description.contains("no speech") || description.contains("no match")
+    }
+
+    private func teardownEngine() {
+        if tapInstalled {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
+        if audioEngine.isRunning {
+            audioEngine.stop()
+        }
+        audioEngine.reset()
+    }
+
+    private func enableVoiceProcessingIfPossible(on inputNode: AVAudioInputNode) {
+        do {
+            if !inputNode.isVoiceProcessingEnabled {
+                try inputNode.setVoiceProcessingEnabled(true)
+            }
+        } catch {
+            logger.info("Voice processing unavailable: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func boostedBuffer(_ buffer: AVAudioPCMBuffer, gain: Float) -> AVAudioPCMBuffer {
+        guard gain != 1, buffer.format.commonFormat == .pcmFormatFloat32 else { return buffer }
+        guard let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameCapacity) else {
+            return buffer
+        }
+        copy.frameLength = buffer.frameLength
+        guard let src = buffer.floatChannelData, let dst = copy.floatChannelData else { return buffer }
+        let channels = Int(buffer.format.channelCount)
+        let frames = Int(buffer.frameLength)
+        for channel in 0..<channels {
+            for frame in 0..<frames {
+                dst[channel][frame] = max(-1, min(1, src[channel][frame] * gain))
+            }
+        }
+        return copy
     }
 }

@@ -132,8 +132,7 @@ struct FloatingWindowView: View {
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(.borderless)
-            .disabled(appState.status == .transcribing || appState.status == .enhancing)
-            .accessibilityLabel(appState.status == .recording ? "Stop recording" : "Start recording")
+            .accessibilityLabel(appState.status == .recording ? "Stop recording" : "Start or cancel")
 
             Button(action: {
                 copyToClipboard(appState.lastTranscript)

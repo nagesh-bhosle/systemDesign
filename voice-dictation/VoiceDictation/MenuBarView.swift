@@ -13,11 +13,13 @@ struct MenuBarView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showHistory = false
     @State private var showCopiedFeedback = false
+    @State private var showMicTest = false
 
     var body: some View {
         VStack(spacing: 14) {
             header
             pasteAtCursorHelp
+            micCheckButton
             primaryButton
             undoButton
             transcriptCard
@@ -36,6 +38,10 @@ struct MenuBarView: View {
         }
         .sheet(isPresented: $showHistory) {
             HistoryView()
+                .environmentObject(appState)
+        }
+        .sheet(isPresented: $showMicTest) {
+            MicTestView()
                 .environmentObject(appState)
         }
     }
@@ -113,11 +119,21 @@ struct MenuBarView: View {
 
     // MARK: - Primary Button
 
+    private var micCheckButton: some View {
+        Button("Check microphone") {
+            showMicTest = true
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(appState.status == .recording || appState.status == .transcribing)
+        .accessibilityLabel("Check microphone")
+    }
+
     private var primaryButton: some View {
         Button(action: { appState.toggleRecording() }) {
             HStack(spacing: 6) {
-                Image(systemName: appState.status == .recording ? "stop.fill" : "waveform")
-                Text(appState.status == .recording ? "Stop" : "Start")
+                Image(systemName: primaryButtonSymbol)
+                Text(primaryButtonTitle)
                     .fontWeight(.medium)
             }
             .frame(maxWidth: .infinity)
@@ -129,8 +145,23 @@ struct MenuBarView: View {
                 .fill(appState.status == .recording ? Color.red : AppTheme.accent)
         )
         .foregroundColor(appState.status == .recording ? .white : .black.opacity(0.85))
-        .disabled(appState.status == .transcribing || appState.status == .enhancing)
-        .accessibilityLabel(appState.status == .recording ? "Stop recording" : "Start recording")
+        .accessibilityLabel(primaryButtonTitle)
+    }
+
+    private var primaryButtonTitle: String {
+        switch appState.status {
+        case .recording: return "Stop"
+        case .transcribing, .enhancing: return "Cancel"
+        default: return "Start"
+        }
+    }
+
+    private var primaryButtonSymbol: String {
+        switch appState.status {
+        case .recording: return "stop.fill"
+        case .transcribing, .enhancing: return "xmark"
+        default: return "waveform"
+        }
     }
 
     private var undoButton: some View {

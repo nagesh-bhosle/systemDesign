@@ -89,12 +89,14 @@ struct SettingsView: View {
         .onAppear {
             endpointDraft = appState.llmEndpoint
             vocabularyDraft = appState.customVocabulary
+            appState.refreshAudioInputs()
             if !appState.apiKey.isEmpty {
                 apiKeyStatus = .unknown
             }
         }
         .onDisappear {
             stopHotkeyRecording()
+            appState.stopMicTest()
         }
         .sheet(isPresented: $showPrivacySheet) {
             PrivacyPolicySheet()
@@ -115,6 +117,42 @@ struct SettingsView: View {
                     }
                 }
                 .accessibilityLabel("Dictation language")
+            }
+
+            Section("Microphone") {
+                Picker("Input", selection: Binding(
+                    get: { appState.selectedInputUID },
+                    set: { appState.saveSelectedInput($0) }
+                )) {
+                    ForEach(appState.audioInputs) { device in
+                        Text(device.name).tag(device.uid)
+                    }
+                }
+                .accessibilityLabel("Microphone input")
+
+                Button(appState.isMicTestRunning ? "Stop microphone test" : "Check microphone") {
+                    if appState.isMicTestRunning {
+                        appState.stopMicTest()
+                    } else {
+                        appState.startMicTest()
+                    }
+                }
+                .disabled(appState.status == .recording || appState.status == .transcribing)
+                .accessibilityLabel("Check microphone")
+
+                if appState.isMicTestRunning {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Speak now — the bar should move.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        ProgressView(value: appState.micTestLevel)
+                            .progressViewStyle(.linear)
+                    }
+                }
+
+                Text("Use this to confirm whether the laptop mic or a headset mic is picking up your voice before you record.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
 
             Section("Global Hotkey") {
