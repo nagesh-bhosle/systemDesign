@@ -19,6 +19,8 @@ CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 BINARY="$MACOS_DIR/VoiceDictation"
+APP_VERSION="0.3.0"
+ZIP_PATH="$BUILD_DIR/VoiceDictation-${APP_VERSION}.zip"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -58,6 +60,7 @@ if swiftc -O \
     -framework UserNotifications \
     -framework Speech \
     -framework ServiceManagement \
+    -framework CryptoKit \
     VoiceDictation/*.swift \
     -o "$BINARY" 2>&1; then
     echo -e "${GREEN}Built with swiftc${NC}"
@@ -69,10 +72,42 @@ fi
 cp VoiceDictation/Info.plist "$CONTENTS_DIR/Info.plist"
 printf 'APPL????' > "$CONTENTS_DIR/PkgInfo"
 
+# Copy privacy policy into bundle
+if [ -f "$SCRIPT_DIR/PRIVACY.md" ]; then
+    cp "$SCRIPT_DIR/PRIVACY.md" "$RESOURCES_DIR/PRIVACY.md"
+fi
+
+# App icon: generate .icns from PNG if needed, copy into bundle
+ICON_PNG="$SCRIPT_DIR/VoiceDictation/Resources/AppIcon.png"
+ICON_ICNS="$SCRIPT_DIR/VoiceDictation/Resources/AppIcon.icns"
+ICONSET_DIR="$BUILD_DIR/AppIcon.iconset"
+
+if [ -f "$ICON_PNG" ]; then
+    if [ ! -f "$ICON_ICNS" ]; then
+        echo -e "${YELLOW}Generating AppIcon.icns from PNG...${NC}"
+        rm -rf "$ICONSET_DIR"
+        mkdir -p "$ICONSET_DIR"
+        for size in 16 32 128 256 512; do
+            sips -z "$size" "$size" "$ICON_PNG" --out "$ICONSET_DIR/icon_${size}x${size}.png" > /dev/null
+            double=$((size * 2))
+            sips -z "$double" "$double" "$ICON_PNG" --out "$ICONSET_DIR/icon_${size}x${size}@2x.png" > /dev/null
+        done
+        iconutil -c icns "$ICONSET_DIR" -o "$ICON_ICNS" || {
+            echo -e "${YELLOW}iconutil failed (non-fatal) — continuing without .icns${NC}"
+        }
+    fi
+    if [ -f "$ICON_ICNS" ]; then
+        cp "$ICON_ICNS" "$RESOURCES_DIR/AppIcon.icns"
+        /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$CONTENTS_DIR/Info.plist" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile AppIcon" "$CONTENTS_DIR/Info.plist"
+    fi
+else
+    /usr/libexec/PlistBuddy -c "Delete :CFBundleIconFile" "$CONTENTS_DIR/Info.plist" 2>/dev/null || true
+fi
+
 echo -e "${GREEN}App bundle: $APP_DIR${NC}"
 
 # Sign with a stable identity so Accessibility survives rebuilds.
-# Unsigned / ad-hoc binaries look like a new app to macOS after every compile.
 if [ -z "$CODESIGN_IDENTITY" ]; then
     CODESIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
         | grep -E 'Apple Development|Developer ID Application|Mac Developer' \
@@ -90,10 +125,15 @@ else
     echo -e "${YELLOW}If auto-paste fails: System Settings → Accessibility → uncheck Voice Dictation, then check it again.${NC}"
 fi
 
+# Distribution zip
+rm -f "$ZIP_PATH"
+ditto -c -k --keepParent "$APP_DIR" "$ZIP_PATH"
+echo -e "${GREEN}Distribution zip: $ZIP_PATH${NC}"
+
 if [ "$1" != "build" ]; then
     echo -e "${GREEN}Launching...${NC}"
     echo ""
-    echo "  Optional: Click the mic icon in the menu bar → Settings → paste your Abacus AI API key"
+    echo "  Optional: Click the menu bar icon → Settings → paste your Abacus AI API key"
     echo "  Press Option+Shift+Space anywhere to start/stop recording"
     echo ""
     open "$APP_DIR"

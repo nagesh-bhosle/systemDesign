@@ -73,7 +73,12 @@ final class FloatingWindowController: ObservableObject {
         self.hostingController = newHostingController
 
         panel?.orderFrontRegardless()
+        panel?.resignKey()
         isVisible = true
+    }
+
+    func resignKey() {
+        panel?.resignKey()
     }
 
     func hideWindow() {

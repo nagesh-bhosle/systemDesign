@@ -11,12 +11,13 @@ import ApplicationServices
 import UserNotifications
 import os
 
-enum InsertResult {
+enum InsertResult: Equatable {
     case pasted
     case clipboardOnly
     case needsAccessibilityRefresh
 }
 
+@MainActor
 final class TextInserter {
     static let shared = TextInserter()
 
@@ -25,8 +26,9 @@ final class TextInserter {
     var clipboardOnlyMode: Bool = false
     var restoreClipboardEnabled: Bool = true
 
-    /// App that had keyboard focus when the user started dictating.
     private var insertionTarget: NSRunningApplication?
+    private(set) var lastInsertResult: InsertResult?
+    private(set) var lastTargetPID: pid_t = 0
 
     private init() {
         requestNotificationAuthorization()
@@ -34,13 +36,16 @@ final class TextInserter {
 
     // MARK: - Target app
 
-    /// Call when recording starts, before showing our own windows.
     func captureInsertionTarget() {
         guard let front = NSWorkspace.shared.frontmostApplication else { return }
         if front.bundleIdentifier != Bundle.main.bundleIdentifier {
             insertionTarget = front
             logger.info("Insertion target: \(front.localizedName ?? "unknown", privacy: .public)")
         }
+    }
+
+    var targetBundleIdentifier: String? {
+        resolvedInsertionTarget()?.bundleIdentifier
     }
 
     // MARK: - Public
@@ -51,57 +56,198 @@ final class TextInserter {
 
         if clipboardOnlyMode {
             logger.info("Clipboard-only mode — text on clipboard (\(text.count) chars)")
+            lastInsertResult = .clipboardOnly
+            lastTargetPID = 0
             showNotification(text)
             completion?(.clipboardOnly)
             return
         }
 
-        // Do not call AXIsProcessTrustedWithOptions(prompt). After a rebuild, System
-        // Settings can still show Voice Dictation as enabled while this binary is
-        // not trusted — Apple's dialog looks like permission is missing.
-        guard AXIsProcessTrusted() else {
-            logger.warning("This build is not Accessibility-trusted — text on clipboard")
-            showAccessibilityRefreshNotification(text)
-            completion?(.needsAccessibilityRefresh)
-            return
+        // Clicking our pill/menu can steal key focus. Drop it before inserting
+        // so the caret stays in Notepad / Safari / the search field.
+        FloatingWindowController.shared.resignKey()
+
+        let finish: (InsertResult) -> Void = { result in
+            self.lastInsertResult = result
+            if result == .pasted, self.restoreClipboardEnabled {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                    self.restoreClipboardContents(previousClipboard)
+                }
+            }
+            if result == .needsAccessibilityRefresh {
+                self.showAccessibilityRefreshNotification(text)
+            } else if result != .pasted {
+                self.showNotification(text)
+            }
+            completion?(result)
         }
 
-        guard let target = resolvedInsertionTarget() else {
-            logger.warning("No target app for paste — text on clipboard")
-            showNotification(text)
-            completion?(.clipboardOnly)
-            return
-        }
+        attemptInsert(text: text, allowActivateTarget: true, completion: finish)
+    }
 
-        if #available(macOS 14.0, *) {
-            NSApp.yieldActivation(to: target)
-            _ = target.activate()
-        } else {
-            _ = target.activate(options: [.activateIgnoringOtherApps])
-        }
+    private func attemptInsert(text: String, allowActivateTarget: Bool, completion: @escaping (InsertResult) -> Void) {
+        let ourPID = pid_t(ProcessInfo.processInfo.processIdentifier)
+        let focused = focusedAXElement()
+        let focusedPID = focused.map { axPid($0) } ?? 0
+        let focusedIsOtherApp = focusedPID != 0 && focusedPID != ourPID
 
-        let pid = target.processIdentifier
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-            guard let self else {
-                completion?(.clipboardOnly)
+        if focusedIsOtherApp, let element = focused {
+            if insertTextViaAccessibility(text, into: element) {
+                lastTargetPID = focusedPID
+                logger.info("Inserted via Accessibility into focused field")
+                completion(.pasted)
                 return
             }
-
-            let pasteSucceeded = self.postCommandV(to: pid)
-            if pasteSucceeded {
-                self.logger.info("Posted Cmd+V to \(target.localizedName ?? "app", privacy: .public) (\(text.count) chars)")
-                if self.restoreClipboardEnabled {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                        self.restoreClipboardContents(previousClipboard)
-                    }
-                }
-                completion?(.pasted)
-            } else {
-                self.logger.warning("Paste simulation failed — text on clipboard (\(text.count) chars)")
-                self.showNotification(text)
-                completion?(.clipboardOnly)
-            }
         }
+
+        // Our menu/pill stole focus — put the original app back, then insert.
+        if allowActivateTarget, (!focusedIsOtherApp),
+           let target = resolvedInsertionTarget(),
+           target.processIdentifier != ourPID {
+            if #available(macOS 14.0, *) {
+                NSApp.yieldActivation(to: target)
+                _ = target.activate()
+            } else {
+                _ = target.activate(options: [.activateIgnoringOtherApps])
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                self?.attemptInsert(text: text, allowActivateTarget: false, completion: completion)
+            }
+            return
+        }
+
+        if AXIsProcessTrusted(), postCommandVToSession() {
+            lastTargetPID = focusedIsOtherApp ? focusedPID : (resolvedInsertionTarget()?.processIdentifier ?? 0)
+            logger.info("Posted session Cmd+V for focused cursor")
+            completion(.pasted)
+            return
+        }
+
+        lastTargetPID = 0
+        if !AXIsProcessTrusted() {
+            completion(.needsAccessibilityRefresh)
+        } else {
+            completion(.clipboardOnly)
+        }
+    }
+
+    // MARK: - Accessibility insert (the actual caret)
+
+    private func focusedAXElement() -> AXUIElement? {
+        let systemWide = AXUIElementCreateSystemWide()
+        var focused: CFTypeRef?
+        let status = AXUIElementCopyAttributeValue(
+            systemWide,
+            kAXFocusedUIElementAttribute as CFString,
+            &focused
+        )
+        guard status == .success, let focused else { return nil }
+        return (focused as! AXUIElement)
+    }
+
+    private func axPid(_ element: AXUIElement) -> pid_t {
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        return pid
+    }
+
+    private func insertTextViaAccessibility(_ text: String, into element: AXUIElement) -> Bool {
+        let selectedStatus = AXUIElementSetAttributeValue(
+            element,
+            kAXSelectedTextAttribute as CFString,
+            text as CFTypeRef
+        )
+        if selectedStatus == .success {
+            return true
+        }
+
+        var valueRef: CFTypeRef?
+        var rangeRef: CFTypeRef?
+        let valueStatus = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef)
+        let rangeStatus = AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeRef)
+        guard valueStatus == .success, rangeStatus == .success,
+              let current = valueRef as? String,
+              let rangeRef else {
+            return false
+        }
+
+        var cfRange = CFRange()
+        guard AXValueGetValue(rangeRef as! AXValue, .cfRange, &cfRange) else { return false }
+
+        let ns = current as NSString
+        let location = max(0, min(Int(cfRange.location), ns.length))
+        let length = max(0, min(Int(cfRange.length), ns.length - location))
+        let updated = ns.replacingCharacters(in: NSRange(location: location, length: length), with: text)
+        let setStatus = AXUIElementSetAttributeValue(
+            element,
+            kAXValueAttribute as CFString,
+            updated as CFTypeRef
+        )
+        guard setStatus == .success else { return false }
+
+        var caret = CFRange(location: location + (text as NSString).length, length: 0)
+        if let caretValue = AXValueCreate(.cfRange, &caret) {
+            AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, caretValue)
+        }
+        return true
+    }
+
+    // MARK: - Session-wide Cmd+V (reaches the app that owns the caret)
+
+    private func postCommandVToSession() -> Bool {
+        postSessionChord(keyCode: 0x09)
+    }
+
+    private func postSessionChord(keyCode: UInt16) -> Bool {
+        let source = CGEventSource(stateID: .hidSystemState)
+
+        guard let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: true),
+              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false),
+              let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: false) else {
+            logger.warning("Failed to create CGEvent for session shortcut")
+            return false
+        }
+
+        cmdDown.flags = .maskCommand
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+
+        cmdDown.post(tap: .cghidEventTap)
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
+        cmdUp.post(tap: .cghidEventTap)
+
+        return true
+    }
+
+    enum UndoResult {
+        case undone
+        case nothingToUndo
+        case failed
+    }
+
+    func undoLastPaste() -> UndoResult {
+        guard lastInsertResult == .pasted, lastTargetPID > 0 else {
+            return .nothingToUndo
+        }
+
+        guard AXIsProcessTrusted() else {
+            return .failed
+        }
+
+        if postSessionChord(keyCode: 0x06) {
+            logger.info("Posted Cmd+Z to undo last paste")
+            lastInsertResult = nil
+            lastTargetPID = 0
+            return .undone
+        }
+        return .failed
+    }
+
+    func pasteHistoryEntry(_ text: String, completion: ((InsertResult) -> Void)? = nil) {
+        captureInsertionTarget()
+        insertOrCopy(text, completion: completion)
     }
 
     private func resolvedInsertionTarget() -> NSRunningApplication? {
@@ -188,35 +334,6 @@ final class TextInserter {
         if !items.isEmpty {
             pb.writeObjects(items)
         }
-    }
-
-    // MARK: - Simulate Paste (Cmd+V)
-
-    /// Posts Cmd+V into the target process. `privateState` events are not delivered
-    /// to other apps — use hidSystemState and postToPid.
-    private func postCommandV(to pid: pid_t) -> Bool {
-        guard pid > 0 else { return false }
-
-        let source = CGEventSource(stateID: .hidSystemState)
-
-        guard let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: true),
-              let vDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true),
-              let vUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false),
-              let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: false) else {
-            logger.warning("Failed to create CGEvent for paste simulation")
-            return false
-        }
-
-        cmdDown.flags = .maskCommand
-        vDown.flags = .maskCommand
-        vUp.flags = .maskCommand
-
-        cmdDown.postToPid(pid)
-        vDown.postToPid(pid)
-        vUp.postToPid(pid)
-        cmdUp.postToPid(pid)
-
-        return true
     }
 
     // MARK: - Notification
