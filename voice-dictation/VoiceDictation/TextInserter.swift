@@ -29,6 +29,8 @@ final class TextInserter {
     private var insertionTarget: NSRunningApplication?
     private(set) var lastInsertResult: InsertResult?
     private(set) var lastTargetPID: pid_t = 0
+    /// Bumped on each insert so a late clipboard restore cannot overwrite a newer take.
+    private var restoreGeneration: UInt64 = 0
 
     private init() {
         requestNotificationAuthorization()
@@ -51,6 +53,9 @@ final class TextInserter {
     // MARK: - Public
 
     func insertOrCopy(_ text: String, completion: ((InsertResult) -> Void)? = nil) {
+        restoreGeneration += 1
+        let generation = restoreGeneration
+        let fieldBefore = focusedElementString()
         let previousClipboard = saveClipboardContents()
         copyToClipboardSync(text)
 
@@ -73,7 +78,9 @@ final class TextInserter {
                 self.scheduleClipboardRestore(
                     previous: previousClipboard,
                     transcript: text,
-                    mechanism: mechanism
+                    mechanism: mechanism,
+                    generation: generation,
+                    fieldBefore: fieldBefore
                 )
             }
             if result == .needsAccessibilityRefresh {
@@ -84,7 +91,12 @@ final class TextInserter {
             completion?(result)
         }
 
-        attemptInsert(text: text, allowActivateTarget: true, completion: finish)
+        attemptInsert(
+            text: text,
+            allowActivateTarget: true,
+            fieldBefore: fieldBefore,
+            completion: finish
+        )
     }
 
     private enum PasteMechanism {
@@ -97,6 +109,7 @@ final class TextInserter {
     private func attemptInsert(
         text: String,
         allowActivateTarget: Bool,
+        fieldBefore: String?,
         completion: @escaping (InsertResult, PasteMechanism) -> Void
     ) {
         let ourPID = pid_t(ProcessInfo.processInfo.processIdentifier)
@@ -105,12 +118,14 @@ final class TextInserter {
         let focusedIsOtherApp = focusedPID != 0 && focusedPID != ourPID
 
         if focusedIsOtherApp, let element = focused {
-            if insertTextViaAccessibility(text, into: element) {
+            if insertTextViaAccessibility(text, into: element),
+               fieldConfirmsInsert(transcript: text, before: fieldBefore) {
                 lastTargetPID = focusedPID
                 logger.info("Inserted via Accessibility into focused field")
                 completion(.pasted, .accessibility)
                 return
             }
+            logger.info("Accessibility set did not change the field — falling through to Cmd+V")
         }
 
         // Our menu/pill stole focus — put the original app back, then insert.
@@ -124,7 +139,12 @@ final class TextInserter {
                 _ = target.activate(options: [.activateIgnoringOtherApps])
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-                self?.attemptInsert(text: text, allowActivateTarget: false, completion: completion)
+                self?.attemptInsert(
+                    text: text,
+                    allowActivateTarget: false,
+                    fieldBefore: fieldBefore,
+                    completion: completion
+                )
             }
             return
         }
@@ -308,28 +328,52 @@ final class TextInserter {
     private func scheduleClipboardRestore(
         previous: ClipboardContents,
         transcript: String,
-        mechanism: PasteMechanism
+        mechanism: PasteMechanism,
+        generation: UInt64,
+        fieldBefore: String?
     ) {
         switch mechanism {
         case .accessibility:
-            restoreIfClipboardStillHolds(transcript, previous: previous)
+            restoreIfSafe(
+                transcript: transcript,
+                previous: previous,
+                generation: generation
+            )
         case .commandV:
-            waitForPasteThenRestore(transcript: transcript, previous: previous)
+            waitForConfirmedPasteThenRestore(
+                transcript: transcript,
+                previous: previous,
+                generation: generation,
+                fieldBefore: fieldBefore
+            )
         }
     }
 
-    /// Restore only if the pasteboard still holds our transcript (the user may have copied something else).
-    private func restoreIfClipboardStillHolds(_ transcript: String, previous: ClipboardContents) {
+    /// Restore only if this is still the latest insert and the pasteboard still holds our transcript.
+    private func restoreIfSafe(transcript: String, previous: ClipboardContents, generation: UInt64) {
+        guard generation == restoreGeneration else { return }
         let current = NSPasteboard.general.string(forType: .string)
         guard current == transcript else { return }
         restoreClipboardContents(previous)
     }
 
-    private func waitForPasteThenRestore(transcript: String, previous: ClipboardContents) {
+    private func waitForConfirmedPasteThenRestore(
+        transcript: String,
+        previous: ClipboardContents,
+        generation: UInt64,
+        fieldBefore: String?
+    ) {
         let deadline = Date().addingTimeInterval(2.5)
         func tick() {
-            if focusedTextContains(transcript) || Date() >= deadline {
-                restoreIfClipboardStillHolds(transcript, previous: previous)
+            guard generation == restoreGeneration else { return }
+            if fieldConfirmsInsert(transcript: transcript, before: fieldBefore) {
+                restoreIfSafe(transcript: transcript, previous: previous, generation: generation)
+                return
+            }
+            // Timed out: keep the current transcript on the clipboard.
+            // Restoring here races Cmd+V and pastes the previous take.
+            if Date() >= deadline {
+                logger.info("Paste not confirmed in time — leaving current transcript on the clipboard")
                 return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
@@ -341,10 +385,15 @@ final class TextInserter {
         }
     }
 
-    private func focusedTextContains(_ snippet: String) -> Bool {
-        let needle = String(snippet.prefix(80))
-        guard !needle.isEmpty, let haystack = focusedElementString() else { return false }
-        return haystack.contains(needle)
+    /// True only if the focused field changed and now contains this take.
+    private func fieldConfirmsInsert(transcript: String, before: String?) -> Bool {
+        let needle = String(transcript.prefix(80))
+        guard !needle.isEmpty, let after = focusedElementString() else { return false }
+        guard after.contains(needle) else { return false }
+        if let before, after == before {
+            return false
+        }
+        return true
     }
 
     private func focusedElementString() -> String? {

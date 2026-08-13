@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1 — 2026-08-13
+
+- Fix auto-paste inserting the **previous** take: do not restore the old clipboard until the focused field actually contains this transcript. A timed restore was racing Cmd+V. False Accessibility "success" now falls through to Cmd+V.
+
 ## 0.5.0 — 2026-08-13
 
 Correctness and visual polish. Audio path unchanged (`AVAudioRecorder` + file STT after Stop).

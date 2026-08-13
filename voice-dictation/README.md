@@ -2,7 +2,7 @@
 
 A WisprFlow-inspired macOS menu bar app that lets you speak and inserts the transcribed text wherever your cursor is.
 
-**Version 0.5.0**
+**Version 0.5.1**
 
 See `PRODUCT_ROADMAP.md` for the installable Mac app contract (Applications folder, updates, signing). See `CHANGELOG.md` for release notes.
 
@@ -62,7 +62,7 @@ On first launch, an onboarding window guides you through Microphone, Speech Reco
 - Skip history in password fields (when Accessibility is trusted)
 - Undo last paste via Cmd+Z in the target app
 - Custom menu bar icon (not mic.fill)
-- App icon in bundle; `./run.sh build` also creates `build/VoiceDictation-0.5.0.zip`
+- App icon in bundle; `./run.sh build` also creates `build/VoiceDictation-0.5.1.zip`
 - `./run.sh install` copies the app to `~/Applications/VoiceDictation.app`
 - Privacy policy in Settings → About
 - On-device speech recognition with language picker (en-US, en-GB, de-DE, es-ES, fr-FR, hi-IN)
@@ -79,7 +79,7 @@ On first launch, an onboarding window guides you through Microphone, Speech Reco
 ## Build
 
 ```bash
-./run.sh build          # Build only (also writes build/VoiceDictation-0.5.0.zip)
+./run.sh build          # Build only (also writes build/VoiceDictation-0.5.1.zip)
 ./run.sh install        # Build and copy to ~/Applications/VoiceDictation.app
 ./run.sh clean          # Clean rebuild and launch
 

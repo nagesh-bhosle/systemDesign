@@ -42,7 +42,7 @@ User confirmed: **laptop mic and Bluetooth headset both record.**
 6. **Unsigned `./run.sh` rebuilds still break paste-at-cursor**  
    Accessibility TCC is per signature. After each rebuild: uncheck/check Voice Dictation, or codesign with a stable identity. Documented in `PRODUCT_ROADMAP.md`. `./run.sh install` is the stable daily install path.
 
-7. **Clipboard restore** — **Addressed in 0.5.0.** AX insert restores immediately. Cmd+V waits until the focused field contains the transcript (or 2.5s). Skips restore if the pasteboard no longer holds our text.
+7. **Clipboard restore** — **Addressed in 0.5.1.** Restore only after the focused field contains this take. Do not restore on a timer (that raced Cmd+V and pasted the previous transcript). False AX insert success falls through to Cmd+V.
 
 ### P2 — Robustness / polish
 
