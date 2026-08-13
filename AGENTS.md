@@ -99,3 +99,14 @@ git push origin --delete feature/<topic>
 
 - **Read-only tasks** (research, exploration, answering questions, running tests) do NOT require a branch
 - If the user explicitly says "just commit to main" or "skip the branch", follow their instruction
+
+---
+
+## Hello Interview implementations
+
+When adding or extending a system-design **demo** from Hello Interview (or similar):
+
+1. Read [`.cursor/skills/hello-interview-system-design/SKILL.md`](.cursor/skills/hello-interview-system-design/SKILL.md).
+2. Chrome login does **not** grant the agent access to premium pages — see [premium-access.md](.cursor/skills/hello-interview-system-design/premium-access.md).
+3. Default to the breakdown’s “great” path; expose other named alternatives as `application.yml` flags.
+4. Place code in `<problem>-demo/` with Docker, `./start.sh`, and a short original design note (`<Problem>.md`).

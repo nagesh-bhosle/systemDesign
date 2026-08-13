@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GoPuff demo — local delivery</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #0f1419; --card: #1a2330; --text: #e7ecf3; --muted: #9aa8b8; --accent: #3d8bfd; --ok: #3dd68c; --bad: #f87171; }
+    body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--text); }
+    header { padding: 24px 28px 8px; }
+    h1 { margin: 0 0 6px; font-size: 22px; }
+    .muted { color: var(--muted); font-size: 14px; }
+    main { padding: 16px 28px 40px; display: grid; gap: 16px; max-width: 1100px; }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    button, select { background: var(--card); color: var(--text); border: 1px solid #2c3a4d; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .card { background: var(--card); border-radius: 12px; padding: 16px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #2c3a4d; }
+    input[type=number] { width: 64px; background: var(--bg); color: var(--text); border: 1px solid #2c3a4d; border-radius: 6px; padding: 4px 6px; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #243044; font-size: 12px; margin-right: 6px; }
+    .msg { margin-top: 10px; }
+    .ok { color: var(--ok); }
+    .err { color: var(--bad); }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Local delivery demo</h1>
+  <p class="muted">Availability is the union of inventory at DCs that can reach you in about an hour. Orders are all-or-nothing and cannot double-book the last unit.</p>
+  <p class="muted" id="config"></p>
+</header>
+<main>
+  <section class="card">
+    <div class="row">
+      <label>Location
+        <select id="place">
+          <option value="39.9526,-75.1652">Center City (near HQ DCs)</option>
+          <option value="39.9259,-75.1196">Camden (close as the crow flies, slow mock drive)</option>
+          <option value="40.0890,-75.3960">King of Prussia</option>
+          <option value="41.0,-77.0">Far away (no DCs)</option>
+        </select>
+      </label>
+      <button class="primary" id="load">Load availability</button>
+    </div>
+    <p class="muted" id="nearby"></p>
+  </section>
+  <section class="card">
+    <h2 style="margin-top:0;font-size:16px">Catalog at this location</h2>
+    <table>
+      <thead><tr><th>Item</th><th>Qty</th><th>DCs</th><th>Order</th></tr></thead>
+      <tbody id="items"></tbody>
+    </table>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="order">Place order as alice</button>
+    </div>
+    <div class="msg" id="result"></div>
+  </section>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  let catalog = [];
+
+  async function loadConfig() {
+    const cfg = await fetch('/api/config').then(r => r.json());
+    const g = cfg.gopuff || {};
+    $('config').textContent = Object.entries(g).map(([k,v]) => k + '=' + v).join(' · ');
+  }
+
+  function coords() {
+    const [lat, lon] = $('place').value.split(',').map(Number);
+    return { lat, lon };
+  }
+
+  async function loadAvail() {
+    const { lat, lon } = coords();
+    const data = await fetch(`/api/availability?lat=${lat}&lon=${lon}`).then(r => r.json());
+    catalog = data.items || [];
+    $('nearby').textContent = (data.nearbyDcs || []).length
+      ? 'Nearby DCs: ' + data.nearbyDcs.map(d => `${d.name} (${d.driveMinutes} min, ${d.miles} mi)`).join('; ')
+      : 'No DC can deliver here in time.';
+    const tbody = $('items');
+    tbody.innerHTML = '';
+    for (const item of catalog) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td><strong>${item.name}</strong><div class="muted">${item.sku}</div></td>
+        <td>${item.quantity}</td>
+        <td>${(item.byDc||[]).map(d => `<span class="pill">${d.dcName}: ${d.quantity}</span>`).join('')}</td>
+        <td><input type="number" min="0" max="${item.quantity}" value="${item.sku==='LAST-UNIT'?1:0}" data-id="${item.itemId}" /></td>`;
+      tbody.appendChild(tr);
+    }
+  }
+
+  async function placeOrder() {
+    const { lat, lon } = coords();
+    const lines = [...document.querySelectorAll('input[data-id]')]
+      .map(i => ({ itemId: Number(i.dataset.id), quantity: Number(i.value) }))
+      .filter(l => l.quantity > 0);
+    $('result').textContent = '';
+    if (!lines.length) {
+      $('result').innerHTML = '<span class="err">Pick at least one item.</span>';
+      return;
+    }
+    const res = await fetch('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: 'alice', lat, lon, lines })
+    });
+    const body = await res.json();
+    if (res.ok) {
+      $('result').innerHTML = `<span class="ok">Order ${body.id} confirmed.</span>`;
+      await loadAvail();
+    } else {
+      $('result').innerHTML = `<span class="err">${body.error || res.status}</span>`;
+      await loadAvail();
+    }
+  }
+
+  $('load').onclick = loadAvail;
+  $('order').onclick = placeOrder;
+  $('place').onchange = loadAvail;
+  loadConfig().then(loadAvail);
+</script>
+</body>
+</html>

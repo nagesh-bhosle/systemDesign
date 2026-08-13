@@ -1,0 +1,35 @@
+server:
+  port: 0
+
+gopuff:
+  nearby:
+    strategy: haversine
+    prune-radius-miles: 60
+    max-drive-minutes: 60
+    dc-sync-ms: 60000
+  travel-time:
+    provider: haversine
+  inventory:
+    read-path: postgres
+  cache:
+    ttl-seconds: 60
+  orders:
+    consistency: postgres-serializable
+    lock-ttl-ms: 8000
+    serialization-retries: 5
+
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+  datasource:
+    url: jdbc:h2:mem:gopuff;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false

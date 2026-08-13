@@ -2,7 +2,7 @@
 
 Interview-style **system design problems**, each backed by a **runnable implementation** — not slides or diagrams only.
 
-This repo is for learning by building: classic questions (Dropbox, Yelp) plus supporting notes, and a related macOS product in the same workspace.
+This repo is for learning by building: classic questions (Dropbox, Yelp, GoPuff) plus supporting notes, and a related macOS product in the same workspace.
 
 ---
 
@@ -12,6 +12,7 @@ This repo is for learning by building: classic questions (Dropbox, Yelp) plus su
 |----------|--------|-------|------------------|
 | [Design Dropbox](./dropbox-demo/README.md) | `dropbox-demo` | Spring Boot, Azure Blob (Azurite), H2 | Chunked upload, fingerprinting, dedup, sharing, SSE sync |
 | [Design Yelp](./yelp-demo/README.md) | `yelp-demo` | Spring Boot, PostgreSQL/PostGIS, Elasticsearch | Geo + full-text search, reviews, precomputed ratings |
+| [Design a local delivery service (GoPuff)](./gopuff-demo/README.md) | `gopuff-demo` | Spring Boot, PostgreSQL, Redis | Nearby DCs, availability union, atomic orders |
 | Voice dictation (product) | `voice-dictation` | Swift, macOS | Menu-bar dictation: hotkey → transcribe → paste |
 
 Design write-ups live next to the code (for example [`yelp-demo/Yelp.md`](./yelp-demo/Yelp.md)). Each project README covers architecture, APIs, and how to start it.
@@ -60,6 +61,26 @@ Details: [yelp-demo/README.md](./yelp-demo/README.md) · design notes: [Yelp.md]
 
 ---
 
+## GoPuff-like local delivery
+
+**Question:** Query item availability deliverable in about an hour, and place multi-item orders without double-booking.
+
+**Implementation:** [`gopuff-demo`](gopuff-demo)
+
+- Nearby DCs: haversine, travel-time-all, or radius-pruned travel-time (default)
+- Availability reads: Postgres or Redis cache with invalidation on order
+- Orders: serializable Postgres transaction (default) or Redis distributed locks
+- Switch strategies in `application.yml` (`gopuff.*`)
+
+```bash
+cd gopuff-demo
+./start.sh                    # http://localhost:8082
+```
+
+Details: [gopuff-demo/README.md](gopuff-demo/README.md) · design notes: [Gopuff.md](gopuff-demo/Gopuff.md)
+
+---
+
 ## Voice dictation (macOS)
 
 Not a classic interview prompt; a **working macOS menu bar app** (WisprFlow-style): global hotkey, on-device speech recognition, optional LLM cleanup, paste at cursor.
@@ -86,7 +107,7 @@ Details: [voice-dictation/README.md](./voice-dictation/README.md)
 
 | Project | Needs |
 |---------|--------|
-| Dropbox / Yelp demos | Java 21+, Docker, Maven wrapper (`./mvnw`) |
+| Dropbox / Yelp / GoPuff demos | Java 21+, Docker, Maven wrapper (`./mvnw`) |
 | Voice dictation | macOS 14+, Xcode command line tools |
 
 ---
@@ -97,6 +118,7 @@ Details: [voice-dictation/README.md](./voice-dictation/README.md)
 systemDesign/
 ├── dropbox-demo/       # Design Dropbox — Spring Boot + blob storage
 ├── yelp-demo/          # Design Yelp — search, geo, reviews
+├── gopuff-demo/        # Design local delivery — availability + orders
 ├── voice-dictation/    # macOS dictation app
 ├── CAP.txt
 ├── CoreConcepts.txt

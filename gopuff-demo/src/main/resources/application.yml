@@ -1,0 +1,62 @@
+# ============================================================
+# GoPuff demo — strategy flags (Hello Interview alternatives)
+# ============================================================
+# nearby.strategy:
+#   haversine            — crow-flies miles (bad)
+#   travel-time-all      — travel-time for every DC (bad)
+#   travel-time-pruned   — radius prune then travel-time (great, default)
+# travel-time.provider:
+#   mock                 — distance + per-DC traffic factor (default)
+#   haversine            — minutes from distance / speed only
+# inventory.read-path:
+#   postgres             — query DB on every availability request
+#   cache                — Redis per-DC snapshots (great, default)
+# orders.consistency:
+#   postgres-serializable — one ACID transaction (great, default)
+#   distributed-lock      — Redis locks on sorted inventory keys (good)
+# ============================================================
+
+server:
+  port: 8082
+
+gopuff:
+  nearby:
+    strategy: travel-time-pruned
+    prune-radius-miles: 60
+    max-drive-minutes: 60
+    dc-sync-ms: 300000
+  travel-time:
+    provider: mock
+  inventory:
+    read-path: cache
+  cache:
+    ttl-seconds: 60
+  orders:
+    consistency: postgres-serializable
+    lock-ttl-ms: 8000
+    serialization-retries: 3
+
+spring:
+  application:
+    name: gopuff-demo
+  datasource:
+    url: jdbc:postgresql://localhost:5434/gopuff
+    driver-class-name: org.postgresql.Driver
+    username: gopuff
+    password: gopuff123
+    hikari:
+      maximum-pool-size: 20
+      connection-timeout: 30000
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+  data:
+    redis:
+      host: localhost
+      port: 6380
+
+logging:
+  level:
+    com.example.gopuff: INFO
