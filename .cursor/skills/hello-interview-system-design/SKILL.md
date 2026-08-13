@@ -9,10 +9,6 @@ description: Implements Hello Interview system-design breakdowns as runnable Spr
 
 The user wants a **working implementation** of a Hello Interview (or similar) system-design problem in this repository, not slides only.
 
-## Accessing source material
-
-Chrome login is **not** visible to the agent. Read [premium-access.md](premium-access.md) before asking the user to “just stay logged in.”
-
 Do not paste Hello Interview articles verbatim into the repo. Capture **requirements, tradeoffs, and our mapping**.
 
 ## Repo conventions
