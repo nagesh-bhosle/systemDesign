@@ -1,0 +1,44 @@
+# ============================================================
+# Booking concepts demo
+# Each POST /api/concepts/* runs two (or more) concurrent users
+# against the same row so you can see races and how locks fix them.
+# ============================================================
+
+server:
+  port: 8083
+
+booking:
+  default-delay-ms: 200
+  hold-seconds: 15
+  redis-lock-wait-ms: 3000
+  redis-lock-ttl-ms: 10000
+
+spring:
+  application:
+    name: booking-demo
+  datasource:
+    url: jdbc:postgresql://localhost:5435/booking
+    driver-class-name: org.postgresql.Driver
+    username: booking
+    password: booking123
+    hikari:
+      maximum-pool-size: 20
+      connection-timeout: 30000
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+  data:
+    redis:
+      host: localhost
+      port: 6381
+
+logging:
+  level:
+    com.example.booking: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.orm.jdbc.bind: TRACE
