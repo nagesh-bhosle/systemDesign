@@ -323,6 +323,27 @@ struct SettingsView: View {
 
     private var privacySection: some View {
         Form {
+            Section("Paste at cursor") {
+                HStack {
+                    Circle()
+                        .fill(appState.accessibilityGranted ? Color.green : Color.orange)
+                        .frame(width: 8, height: 8)
+                    Text(appState.accessibilityGranted
+                         ? "Accessibility is on for this build"
+                         : "Accessibility needs a refresh for this build")
+                        .font(.subheadline)
+                }
+
+                Text("macOS path: System Settings → Privacy & Security → Accessibility. Find Voice Dictation, turn it OFF, then ON again. That is what allows paste at the cursor.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Button("Open Accessibility Settings") {
+                    PermissionHelper.openAccessibilitySettings()
+                }
+                .accessibilityLabel("Open Accessibility Settings")
+            }
+
             Section("Speech Recognition") {
                 Toggle("On-device speech recognition", isOn: Binding(
                     get: { appState.onDeviceRecognition },
@@ -367,9 +388,10 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear {
+            appState.refreshPermissionState()
+        }
     }
-
-    // MARK: - About
 
     private var aboutSection: some View {
         Form {

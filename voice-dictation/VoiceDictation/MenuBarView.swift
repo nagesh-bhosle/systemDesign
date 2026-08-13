@@ -17,6 +17,7 @@ struct MenuBarView: View {
     var body: some View {
         VStack(spacing: 14) {
             header
+            pasteAtCursorHelp
             primaryButton
             undoButton
             transcriptCard
@@ -27,6 +28,12 @@ struct MenuBarView: View {
         .padding(14)
         .frame(width: 290)
         .background(.ultraThinMaterial)
+        .onAppear {
+            appState.refreshPermissionState()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            appState.refreshPermissionState()
+        }
         .sheet(isPresented: $showHistory) {
             HistoryView()
                 .environmentObject(appState)
@@ -77,6 +84,31 @@ struct MenuBarView: View {
         case .enhancing: return AppTheme.accent
         default: return .secondary
         }
+    }
+
+    private var pasteAtCursorHelp: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(appState.accessibilityGranted ? Color.green : Color.orange)
+                    .frame(width: 7, height: 7)
+                Text(appState.accessibilityGranted ? "Paste at cursor is ready" : "Paste at cursor needs Accessibility")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Button("Open Accessibility Settings") {
+                PermissionHelper.openAccessibilitySettings()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityLabel("Open Accessibility Settings")
+            if !appState.accessibilityGranted {
+                Text("Turn Voice Dictation off, then on, in that list.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Primary Button

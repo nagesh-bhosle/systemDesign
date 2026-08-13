@@ -46,7 +46,8 @@ enum PermissionType: String, CaseIterable, Identifiable {
         case .speechRecognition:
             return URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition")
         case .accessibility:
-            return URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+            return URL(string: "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility")
+                ?? URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
         }
     }
 }
@@ -151,8 +152,25 @@ enum PermissionHelper {
     }
 
     static func openSettings(for type: PermissionType) {
+        if type == .accessibility {
+            openAccessibilitySettings()
+            return
+        }
         if let url = type.settingsURL {
             NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// Opens System Settings → Privacy & Security → Accessibility.
+    static func openAccessibilitySettings() {
+        let urls = [
+            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility",
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        ]
+        for string in urls {
+            if let url = URL(string: string), NSWorkspace.shared.open(url) {
+                return
+            }
         }
     }
 }
