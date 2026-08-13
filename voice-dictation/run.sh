@@ -62,7 +62,9 @@ if swiftc -O \
     -framework ServiceManagement \
     -framework CryptoKit \
     -framework CoreAudio \
+    -import-objc-header VoiceDictation/ExceptionCatcher.h \
     VoiceDictation/*.swift \
+    VoiceDictation/ExceptionCatcher.m \
     -o "$BINARY" 2>&1; then
     echo -e "${GREEN}Built with swiftc${NC}"
 else

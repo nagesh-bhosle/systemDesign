@@ -50,7 +50,6 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
     private var recognitionTask: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
     private var tapInstalled = false
-    private var isMonitoring = false
 
     var preferredInputUID: String = ""
 
@@ -147,32 +146,6 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
         }
     }
 
-    // MARK: - Microphone test (same engine as dictation)
-
-    func startMonitoring() throws {
-        cancelRecognitionIfNeeded(notify: true)
-        stopCaptureGraph()
-        applyPreferredInput()
-
-        audioEngine.prepare()
-        let format = audioEngine.inputNode.outputFormat(forBus: 0)
-        guard format.channelCount > 0, format.sampleRate > 0 else {
-            throw SpeechRecognizerError.invalidAudioFormat
-        }
-
-        try beginInputTap(bufferSize: 1024, appendToRecognizer: false)
-        isMonitoring = true
-    }
-
-    func stopMonitoring() {
-        guard isMonitoring else { return }
-        isMonitoring = false
-        stopCaptureGraph()
-        DispatchQueue.main.async { [weak self] in
-            self?.onAudioLevel?(0)
-        }
-    }
-
     // MARK: - Start / Stop / Cancel
 
     func startRecognition(completion: @escaping (Result<String, Error>) -> Void) {
@@ -214,7 +187,6 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
         }
 
         applyPreferredInput()
-        audioEngine.prepare()
 
         let recordingFormat = audioEngine.inputNode.outputFormat(forBus: 0)
         guard recordingFormat.channelCount > 0, recordingFormat.sampleRate > 0 else {
@@ -286,34 +258,29 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
     }
 
     private func beginInputTap(bufferSize: AVAudioFrameCount, appendToRecognizer: Bool) throws {
-        if tapInstalled {
-            audioEngine.inputNode.removeTap(onBus: 0)
-            tapInstalled = false
-        }
-
-        let install: () -> Void = { [weak self] in
-            guard let self else { return }
-            self.audioEngine.inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: nil) { [weak self] buffer, _ in
-                guard let self else { return }
-                if appendToRecognizer {
-                    self.recognitionRequest?.append(buffer)
-                }
-                self.publishAudioLevel(from: buffer)
-            }
-            self.tapInstalled = true
-        }
-
-        install()
         do {
-            try audioEngine.start()
+            try ExceptionCatcher.run { errorPtr in
+                if self.tapInstalled {
+                    self.audioEngine.inputNode.removeTap(onBus: 0)
+                    self.tapInstalled = false
+                }
+                self.audioEngine.inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: nil) { [weak self] buffer, _ in
+                    guard let self else { return }
+                    if appendToRecognizer {
+                        self.recognitionRequest?.append(buffer)
+                    }
+                    self.publishAudioLevel(from: buffer)
+                }
+                self.tapInstalled = true
+                do {
+                    try self.audioEngine.start()
+                } catch {
+                    errorPtr?.pointee = error as NSError
+                }
+            }
         } catch {
-            logger.warning("Audio engine start failed, retrying after reset: \(error.localizedDescription, privacy: .public)")
             stopCaptureGraph()
-            audioEngine.reset()
-            applyPreferredInput()
-            audioEngine.prepare()
-            install()
-            try audioEngine.start()
+            throw error
         }
     }
 
@@ -333,19 +300,23 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest = nil
-        isMonitoring = false
     }
 
-    /// Stop the hardware graph without `reset()`, which can wedge the input unit.
+    /// Stop the hardware graph without `reset()` or `prepare()`, which can abort.
     private func stopCaptureGraph() {
-        if tapInstalled {
-            audioEngine.inputNode.removeTap(onBus: 0)
-            tapInstalled = false
+        do {
+            try ExceptionCatcher.run { _ in
+                if self.tapInstalled {
+                    self.audioEngine.inputNode.removeTap(onBus: 0)
+                }
+                if self.audioEngine.isRunning {
+                    self.audioEngine.stop()
+                }
+            }
+        } catch {
+            logger.warning("Audio teardown: \(error.localizedDescription, privacy: .public)")
         }
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
-        isMonitoring = false
+        tapInstalled = false
     }
 
     private func publishAudioLevel(from buffer: AVAudioPCMBuffer) {

@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import AVFoundation
 import CoreAudio
 import os
 
@@ -132,5 +133,59 @@ enum AudioInputManager {
         let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &cfString)
         guard status == noErr, let cfString else { return nil }
         return cfString.takeUnretainedValue() as String
+    }
+}
+
+/// Level meter that does not use AVAudioEngine (prepare() can abort the process).
+final class MicrophoneTester {
+    private var recorder: AVAudioRecorder?
+    private var timer: Timer?
+    private var fileURL: URL?
+    var onLevel: ((Float) -> Void)?
+
+    func start() throws {
+        stop()
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voicedictation-mic-test-\(UUID().uuidString).caf")
+        let settings: [String: Any] = [
+            AVFormatIDKey: Int(kAudioFormatLinearPCM),
+            AVSampleRateKey: 44100,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false
+        ]
+
+        let recorder = try AVAudioRecorder(url: url, settings: settings)
+        recorder.isMeteringEnabled = true
+        guard recorder.prepareToRecord(), recorder.record() else {
+            throw SpeechRecognizerError.microphoneBusy
+        }
+
+        self.recorder = recorder
+        self.fileURL = url
+        timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            guard let self, let recorder = self.recorder else { return }
+            recorder.updateMeters()
+            let db = recorder.averagePower(forChannel: 0)
+            let level = max(0, min(1, (db + 55) / 55))
+            self.onLevel?(level)
+        }
+        if let timer {
+            RunLoop.main.add(timer, forMode: .common)
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        recorder?.stop()
+        recorder = nil
+        if let fileURL {
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+        fileURL = nil
+        onLevel?(0)
     }
 }

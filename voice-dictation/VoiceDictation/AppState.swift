@@ -327,19 +327,26 @@ final class AppState: ObservableObject {
         if status == .recording || status == .transcribing {
             return
         }
+        micTestSession += 1
+        let session = micTestSession
+        micTester.stop()
         isMicTestRunning = false
         micTestLevel = 0
-        speechRecognizer.stopMonitoring()
         refreshAudioInputs()
         speechRecognizer.preferredInputUID = selectedInputUID
-        speechRecognizer.onAudioLevel = { [weak self] level in
+        AudioInputManager.setDefaultInput(uid: selectedInputUID)
+        micTester.onLevel = { [weak self] level in
             Task { @MainActor in
-                guard let self, self.isMicTestRunning else { return }
+                guard let self, self.micTestSession == session, self.isMicTestRunning else { return }
                 self.micTestLevel = Double(level)
             }
         }
         do {
-            try speechRecognizer.startMonitoring()
+            try micTester.start()
+            guard micTestSession == session else {
+                micTester.stop()
+                return
+            }
             isMicTestRunning = true
         } catch {
             isMicTestRunning = false
@@ -349,16 +356,16 @@ final class AppState: ObservableObject {
     }
 
     func stopMicTest() {
+        micTestSession += 1
         isMicTestRunning = false
         micTestLevel = 0
-        speechRecognizer.stopMonitoring()
-        if status != .recording {
-            speechRecognizer.onAudioLevel = nil
-        }
+        micTester.stop()
     }
 
     private let speechRecognizer: SpeechRecognizerService
     private let llmService: AbacusLLMService
+    private let micTester = MicrophoneTester()
+    private var micTestSession: UInt64 = 0
     private var rawTranscript: String = ""
     private var llmTimedOut: Bool = false
     private var transcriptionProcessed: Bool = false

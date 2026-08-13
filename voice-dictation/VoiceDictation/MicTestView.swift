@@ -69,7 +69,9 @@ struct MicTestView: View {
         .frame(width: 360)
         .onAppear {
             appState.refreshAudioInputs()
-            appState.startMicTest()
+            DispatchQueue.main.async {
+                appState.startMicTest()
+            }
         }
         .onDisappear {
             appState.stopMicTest()
