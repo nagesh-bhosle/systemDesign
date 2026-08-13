@@ -514,7 +514,7 @@ final class AppState: ObservableObject {
                                     break
                                 }
                             }
-                            self.recoverToIdle(rebuildEngine: true, message: "No speech detected — try again")
+                            self.recoverToIdle(rebuildEngine: true, message: "No speech detected — try again", playFinishedSound: true)
                         }
                     }
                 }
@@ -538,11 +538,12 @@ final class AppState: ObservableObject {
         liveTranscript = ""
         speechRecognizer.stopRecognition()
 
+        let timeout = speechRecognizer.recommendedTranscribeTimeout()
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
             if self.status == .transcribing && !self.transcriptionProcessed {
                 self.logger.warning("Transcription timed out — resetting to idle")
-                self.recoverToIdle(rebuildEngine: true, message: "No speech detected")
+                self.recoverToIdle(rebuildEngine: true, message: "No speech detected", playFinishedSound: true)
             }
         }
     }
@@ -552,7 +553,7 @@ final class AppState: ObservableObject {
         let trimmed = vocabularyApplied.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmed.isEmpty else {
-            recoverToIdle(rebuildEngine: true, message: "No speech detected")
+            recoverToIdle(rebuildEngine: true, message: "No speech detected", playFinishedSound: true)
             hideFloatingWindow()
             return
         }
@@ -664,13 +665,14 @@ final class AppState: ObservableObject {
         }
         status = .idle
         hideFloatingWindow()
+        playFinishedSoundIfNeeded()
 
         if let errorNote = errorNote {
             setError(errorNote)
         }
     }
 
-    private func recoverToIdle(rebuildEngine: Bool = true, message: String?) {
+    private func recoverToIdle(rebuildEngine: Bool = true, message: String?, playFinishedSound: Bool = false) {
         transcriptionProcessed = true
         isStartingRecording = false
         status = .idle
@@ -688,6 +690,14 @@ final class AppState: ObservableObject {
         if let message {
             setStatusMessage(message)
         }
+        if playFinishedSound {
+            playFinishedSoundIfNeeded()
+        }
+    }
+
+    private func playFinishedSoundIfNeeded() {
+        guard playSounds else { return }
+        SoundPlayer.shared.playDictationFinished()
     }
 
     private func hideFloatingWindow() {

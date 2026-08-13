@@ -217,6 +217,10 @@ final class MicrophoneTester {
         fileURL = nil
         onLevel?(0)
     }
+
+    deinit {
+        stop()
+    }
 }
 
 enum AudioLevel {

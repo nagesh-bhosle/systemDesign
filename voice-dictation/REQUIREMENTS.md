@@ -20,8 +20,8 @@ Press a global hotkey → speak → transcribed text is inserted at cursor posit
 
 ### Features
 1. **Global Hotkey** — press a key combo (⌥⇧Space) anywhere to start/stop recording
-2. **Audio Recording** — capture microphone input via AVAudioEngine
-3. **On-Device Speech-to-Text** — use Apple SFSpeechRecognizer for on-device transcription (no API key needed)
+2. **Audio Recording** — capture microphone input via AVAudioRecorder (headset-safe; no live AVAudioEngine input)
+3. **On-Device Speech-to-Text** — after Stop, transcribe the recording with SFSpeechURLRecognitionRequest / SFSpeechRecognizer
 4. **Optional LLM Cleanup** — send transcript to Abacus AI for filler word removal and grammar correction
 5. **Text Insertion** — paste transcribed text at cursor position using Accessibility API + Cmd+V simulation
 6. **Clipboard Save/Restore** — previous clipboard contents are preserved after paste
@@ -33,8 +33,8 @@ Press a global hotkey → speak → transcribed text is inserted at cursor posit
 ### Tech Stack
 - **Language:** Swift (native macOS)
 - **UI:** SwiftUI for menu bar + floating window
-- **Audio:** AVFoundation (AVAudioEngine for recording)
-- **Speech Recognition:** Apple SFSpeechRecognizer (on-device, no API key needed)
+- **Audio:** AVFoundation (`AVAudioRecorder` for capture; do not use AVAudioEngine input — Bluetooth HFP regression)
+- **Speech Recognition:** Apple SFSpeechRecognizer via `SFSpeechURLRecognitionRequest` after Stop
 - **LLM Cleanup (Optional):** Abacus AI (routellm.abacus.ai) — OpenAI-compatible API
 - **Global Hotkey:** Carbon framework (RegisterEventHotKey)
 - **Text Insertion:** Accessibility API (AXUIElement) + Cmd+V simulation with clipboard fallback
@@ -60,7 +60,7 @@ Press a global hotkey → speak → transcribed text is inserted at cursor posit
 3. **Command palette** — voice commands for editing, formatting
 4. **History** — searchable transcript history
 5. **Settings UI** — configure hotkey, API key, language, style
-6. **Auto-update** — Sparkle framework
+6. **Auto-update** — Sparkle framework (documented in PRODUCT_ROADMAP.md; not in MVP)
 7. **Menu bar icon** — animated waveform while recording
 
 ## Architecture
@@ -92,9 +92,9 @@ voice-dictation/
 ## Data Flow
 
 ```
-[Hotkey Press] → [Start Recording] → [Audio Buffer via AVAudioEngine]
+[Hotkey Press] → [Start Recording] → [AVAudioRecorder → temp .caf]
      ↓
-[Hotkey Press Again] → [Stop Recording] → [SFSpeechRecognizer processes audio]
+[Hotkey Press Again] → [Stop Recording] → [SFSpeechURLRecognitionRequest]
      ↓
 [On-Device Transcription] → [Transcribed Text]
      ↓

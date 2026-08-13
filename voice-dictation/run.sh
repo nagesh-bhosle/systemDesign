@@ -5,6 +5,7 @@
 # Usage:
 #   ./run.sh          # Build and launch the app
 #   ./run.sh build    # Build only (don't launch)
+#   ./run.sh install  # Build and copy to ~/Applications/VoiceDictation.app
 #   ./run.sh clean    # Full clean build, then launch
 #
 
@@ -19,7 +20,7 @@ CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 BINARY="$MACOS_DIR/VoiceDictation"
-APP_VERSION="0.3.0"
+APP_VERSION="0.4.0"
 ZIP_PATH="$BUILD_DIR/VoiceDictation-${APP_VERSION}.zip"
 
 RED='\033[0;31m'
@@ -132,6 +133,18 @@ fi
 rm -f "$ZIP_PATH"
 ditto -c -k --keepParent "$APP_DIR" "$ZIP_PATH"
 echo -e "${GREEN}Distribution zip: $ZIP_PATH${NC}"
+
+if [ "$1" = "install" ]; then
+    INSTALL_DIR="$HOME/Applications"
+    mkdir -p "$INSTALL_DIR"
+    INSTALL_APP="$INSTALL_DIR/VoiceDictation.app"
+    echo -e "${YELLOW}Installing to $INSTALL_APP${NC}"
+    rm -rf "$INSTALL_APP"
+    ditto "$APP_DIR" "$INSTALL_APP"
+    echo -e "${GREEN}Installed. Open from Launchpad or:${NC} open \"$INSTALL_APP\""
+    echo "This is the stable app identity (com.nagesh.voicedictation). See PRODUCT_ROADMAP.md."
+    exit 0
+fi
 
 if [ "$1" != "build" ]; then
     echo -e "${GREEN}Launching...${NC}"

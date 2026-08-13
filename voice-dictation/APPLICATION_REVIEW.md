@@ -1,7 +1,8 @@
 # Application review — Voice Dictation
 
-Date: 2026-08-13 (updated after known-good merge)  
-Snapshot: `main` @ `c1c3ee7`, tags **`voice-dictation-working`** and **`voice-dictation-working-2026-08-13`**
+Date: 2026-08-13 (updated for v0.4.0)  
+Headset restore snapshot: `voice-dictation-working` @ `c1c3ee7` (unchanged)  
+Product line: `main` @ v0.4.0 — see `PRODUCT_ROADMAP.md` and `CHANGELOG.md`.
 
 Restore that build:
 
@@ -28,26 +29,20 @@ User confirmed: **laptop mic and Bluetooth headset both record.**
 
 ### P1 — Product / correctness
 
-1. **No live transcript while talking**  
-   Text appears after Stop, when the file is transcribed. The floating bar will show a timer/meter but not words until then. Expected with the headset-safe design; say so in the UI (“Transcribing after you stop…”).
+1. **No live transcript while talking** — **Addressed in 0.4.0 (copy).** Text still appears after Stop (headset-safe design). UI now says “Stop to transcribe” / “Transcribing after you stop…”.
 
-2. **Speech is written to a temp `.caf` before STT**  
-   `voicedictation-*.caf` and `voicedictation-mic-test-*.caf` in the temp directory. Deleted after success, left behind on crash. Privacy-sensitive; delete in `deinit` and on terminate (`applicationWillTerminate`).
+2. **Temp `.caf` files** — **Addressed in 0.4.0.** `TempRecordingCleanup` deletes `voicedictation-*.caf` on launch, quit, transcribe finish, mic-test stop, and `deinit`.
 
-3. **Very short takes can be dropped**  
-   Files under 2000 bytes are treated as no speech. A quick phrase might be discarded.
+3. **Very short takes** — **Addressed in 0.4.0.** Dropped the 2000-byte cutoff. Only header-only / sub-80ms click files are skipped.
 
-4. **8 second transcribe timeout**  
-   Long recordings may still be processing when the timeout finishes with whatever partial exists (possibly empty). Scale timeout with duration, or wait for `isFinal`.
+4. **Transcribe timeout** — **Addressed in 0.4.0.** Timeout scales with recording length (`max(12, duration×2.5+6)`, cap 60s).
 
-5. **Start/stop sounds are skipped**  
-   They were switching the Bluetooth route. Settings still has “Play start/stop sounds,” which now does nothing for dictation. Hide the toggle or play only after transcribe completes.
+5. **Start/stop sounds** — **Addressed in 0.4.0.** No sound at Start. Optional Pop after transcription finishes.
 
 6. **Unsigned `./run.sh` rebuilds still break paste-at-cursor**  
-   Accessibility TCC is per signature. After each rebuild: uncheck/check Voice Dictation, or codesign with a stable identity.
+   Accessibility TCC is per signature. After each rebuild: uncheck/check Voice Dictation, or codesign with a stable identity. Documented in `PRODUCT_ROADMAP.md`. `./run.sh install` is the stable daily install path.
 
-7. **Clipboard restore at 1.2s**  
-   Slow apps can paste the old clipboard. Prefer restoring only after a successful AX insert, or wait longer.
+7. **Clipboard restore at 1.2s** — **Deferred.** Slow apps can paste the old clipboard. Prefer restoring only after a successful AX insert, or wait longer. Left unchanged to avoid paste regressions.
 
 ### P2 — Robustness / polish
 
@@ -75,11 +70,10 @@ User confirmed: **laptop mic and Bluetooth headset both record.**
 
 ## Suggested next work (do not mix into the working tag)
 
-1. Delete temp recordings on quit and after transcribe.  
-2. UI copy: listening vs transcribing-the-file.  
-3. Transcribe timeout based on recording length.  
-4. Codesign in `run.sh` when an identity exists (already attempted).  
-5. Optional: live partials **only** for built-in mic, keep recorder path for Bluetooth — easy to regress; keep one path unless you tag again after testing both mics.
+1. Sparkle + notarization when a Developer ID and appcast host exist (`PRODUCT_ROADMAP.md`).
+2. Clipboard restore after confirmed AX insert (P1.7).
+3. Codesign every `run.sh` build with a stable identity so Accessibility survives.
+4. Optional: live partials **only** for built-in mic, keep recorder path for Bluetooth — easy to regress; keep one path unless you tag again after testing both mics.
 
 ---
 

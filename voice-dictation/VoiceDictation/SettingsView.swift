@@ -175,11 +175,14 @@ struct SettingsView: View {
             }
 
             Section("Sounds") {
-                Toggle("Play start/stop sounds", isOn: Binding(
+                Toggle("Play a sound when dictation finishes", isOn: Binding(
                     get: { appState.playSounds },
                     set: { appState.savePlaySounds($0) }
                 ))
-                .accessibilityLabel("Play recording sounds")
+                .accessibilityLabel("Play a sound when dictation finishes")
+                Text("Plays after transcription, not at Start, so Bluetooth headsets stay connected.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
 
             Section("Custom Vocabulary") {
@@ -415,7 +418,7 @@ struct SettingsView: View {
     private var aboutSection: some View {
         Form {
             Section("Voice Dictation") {
-                Text("Version 0.3.0")
+                Text("Version 0.4.0")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Text("Speech recognition runs on your Mac. Press the global hotkey to start and stop dictation. Text is pasted at your cursor or copied to the clipboard.")

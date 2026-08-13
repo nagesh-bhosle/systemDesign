@@ -2,7 +2,8 @@
 //  SoundPlayer.swift
 //  VoiceDictation
 //
-//  Plays short system sounds on recording start/stop.
+//  Plays a short system sound after transcription finishes.
+//  Do not play at record start — NSSound can bounce Bluetooth headsets into HFP.
 //
 
 import AppKit
@@ -12,15 +13,7 @@ final class SoundPlayer {
 
     private init() {}
 
-    func playRecordingStart() {
-        if let sound = NSSound(named: "Tink") {
-            sound.play()
-        } else {
-            NSSound.beep()
-        }
-    }
-
-    func playRecordingStop() {
+    func playDictationFinished() {
         if let sound = NSSound(named: "Pop") {
             sound.play()
         } else {

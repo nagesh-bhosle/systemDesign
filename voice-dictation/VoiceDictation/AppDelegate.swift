@@ -13,6 +13,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: "com.nagesh.voicedictation", category: "AppDelegate")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        TempRecordingCleanup.purgeOrphanedFiles()
+
         HotkeyManager.shared.updateConfiguration(
             keyCode: HotkeyPreferences.loadKeyCode(),
             modifiers: HotkeyPreferences.loadModifiers(),
@@ -38,5 +40,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         HotkeyManager.shared.unregisterHotkey()
+        TempRecordingCleanup.purgeOrphanedFiles()
     }
 }

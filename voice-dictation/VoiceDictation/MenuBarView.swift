@@ -20,6 +20,7 @@ struct MenuBarView: View {
             pasteAtCursorHelp
             micCheckButton
             primaryButton
+            transcriptionHint
             undoButton
             transcriptCard
             messageArea
@@ -141,6 +142,21 @@ struct MenuBarView: View {
         )
         .foregroundColor(appState.status == .recording ? .white : .black.opacity(0.85))
         .accessibilityLabel(primaryButtonTitle)
+    }
+
+    @ViewBuilder
+    private var transcriptionHint: some View {
+        if appState.status == .recording {
+            Text("Words appear after you press Stop.")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else if appState.status == .transcribing {
+            Text("Transcribing after you stop…")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     private var primaryButtonTitle: String {

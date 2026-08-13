@@ -51,6 +51,8 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
     private var recorder: AVAudioRecorder?
     private var meterTimer: Timer?
     private var recordingURL: URL?
+    private var recordingStartedAt: Date?
+    private(set) var lastRecordingDuration: TimeInterval = 0
     private var sessionGeneration: UInt64 = 0
 
     private let stateQueue = DispatchQueue(label: "com.nagesh.voicedictation.speech-state")
@@ -90,6 +92,13 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
 
     deinit {
         cancel()
+        TempRecordingCleanup.purgeOrphanedFiles()
+    }
+
+    /// Seconds to wait for URL transcription. Scales with take length so long
+    /// recordings are not cut off by a fixed 8s cap.
+    func recommendedTranscribeTimeout() -> TimeInterval {
+        min(60, max(12, lastRecordingDuration * 2.5 + 6))
     }
 
     func speechRecognizer(_ speechRecognizer: SFSpeechRecognizer, availabilityDidChange available: Bool) {
@@ -197,6 +206,8 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
         }
         self.recorder = recorder
         self.recordingURL = url
+        self.recordingStartedAt = Date()
+        self.lastRecordingDuration = 0
         startMetering()
     }
 
@@ -217,7 +228,13 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
     private func stopRecorderKeepingFile() {
         meterTimer?.invalidate()
         meterTimer = nil
-        recorder?.stop()
+        if let recorder {
+            lastRecordingDuration = max(recorder.currentTime, 0)
+            recorder.stop()
+        } else if let recordingStartedAt {
+            lastRecordingDuration = max(Date().timeIntervalSince(recordingStartedAt), 0)
+        }
+        recordingStartedAt = nil
         recorder = nil
         DispatchQueue.main.async { [weak self] in
             self?.onAudioLevel?(0)
@@ -240,8 +257,12 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
         }
 
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? 0
-        if fileSize < 2000 {
-            logger.info("Recording too small (\(fileSize) bytes) — treating as no speech")
+        // Only skip header-only / click takes. A 2000-byte cutoff discarded real
+        // short speech when the CAF write lagged behind recorder.stop().
+        let headerOnly = fileSize < 256
+        let accidentalClick = lastRecordingDuration > 0 && lastRecordingDuration < 0.08 && fileSize < 512
+        if headerOnly || accidentalClick {
+            logger.info("Recording empty (size=\(fileSize) duration=\(self.lastRecordingDuration)s) — treating as no speech")
             finish(with: .success(""), generation: generation)
             return
         }
@@ -283,7 +304,9 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+        let timeout = recommendedTranscribeTimeout()
+        logger.info("Transcribe timeout \(timeout, privacy: .public)s for \(self.lastRecordingDuration, privacy: .public)s recording")
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self] in
             guard let self else { return }
             let shouldFinish = self.stateQueue.sync { !self._hasCompleted && self.sessionGeneration == generation }
             if shouldFinish {

@@ -95,6 +95,11 @@ struct FloatingWindowView: View {
                         .foregroundColor(.primary)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                } else {
+                    Text("Stop to transcribe")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -111,7 +116,7 @@ struct FloatingWindowView: View {
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else if appState.status == .transcribing {
-            Text("Transcribing...")
+            Text("Transcribing after you stop…")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
