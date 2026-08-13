@@ -317,38 +317,48 @@ final class AppState: ObservableObject {
         selectedInputUID = uid
         UserDefaults.standard.set(uid, forKey: UserDefaultsKey.preferredAudioInputUID)
         speechRecognizer.preferredInputUID = uid
+        AudioInputManager.setDefaultInput(uid: uid)
         if isMicTestRunning {
             startMicTest()
         }
     }
 
     func startMicTest() {
-        guard status != .recording, status != .transcribing else { return }
-        stopMicTest()
+        if status == .recording || status == .transcribing {
+            return
+        }
+        isMicTestRunning = false
+        micTestLevel = 0
+        speechRecognizer.stopMonitoring()
         refreshAudioInputs()
-        micTester.onLevel = { [weak self] level in
+        speechRecognizer.preferredInputUID = selectedInputUID
+        speechRecognizer.onAudioLevel = { [weak self] level in
             Task { @MainActor in
-                self?.micTestLevel = Double(level)
+                guard let self, self.isMicTestRunning else { return }
+                self.micTestLevel = Double(level)
             }
         }
         do {
-            try micTester.start(deviceUID: selectedInputUID.isEmpty ? nil : selectedInputUID)
+            try speechRecognizer.startMonitoring()
             isMicTestRunning = true
         } catch {
             isMicTestRunning = false
+            micTestLevel = 0
             setError("Could not start microphone test: \(error.localizedDescription)")
         }
     }
 
     func stopMicTest() {
-        micTester.stop()
         isMicTestRunning = false
         micTestLevel = 0
+        speechRecognizer.stopMonitoring()
+        if status != .recording {
+            speechRecognizer.onAudioLevel = nil
+        }
     }
 
     private let speechRecognizer: SpeechRecognizerService
     private let llmService: AbacusLLMService
-    private let micTester = MicrophoneTester()
     private var rawTranscript: String = ""
     private var llmTimedOut: Bool = false
     private var transcriptionProcessed: Bool = false
@@ -405,7 +415,6 @@ final class AppState: ObservableObject {
         }
 
         stopMicTest()
-        speechRecognizer.resetSession()
         isStartingRecording = true
         clearMessages()
         liveTranscript = ""
@@ -475,16 +484,20 @@ final class AppState: ObservableObject {
                             if self.status == .idle { return }
                             if let speechError = error as? SpeechRecognizerError,
                                case .cancelled = speechError {
-                                self.speechRecognizer.resetSession()
                                 return
                             }
-                            self.speechRecognizer.resetSession()
-                            self.status = .idle
-                            self.stopRecordingTimer()
-                            self.liveTranscript = ""
-                            self.audioLevel = 0
-                            self.setStatusMessage("No speech detected — try again")
                             self.logger.warning("Recognition ended: \(error.localizedDescription, privacy: .public)")
+                            if let speechError = error as? SpeechRecognizerError {
+                                switch speechError {
+                                case .audioEngineStartFailed, .invalidAudioFormat, .recognizerUnavailable, .couldNotCreateRequest, .microphoneBusy:
+                                    self.recoverToIdle(message: nil)
+                                    self.setError(speechError.localizedDescription)
+                                    return
+                                default:
+                                    break
+                                }
+                            }
+                            self.recoverToIdle(message: "No speech detected — try again")
                         }
                     }
                 }
@@ -646,10 +659,11 @@ final class AppState: ObservableObject {
     private func recoverToIdle(message: String?) {
         transcriptionProcessed = true
         isStartingRecording = false
+        status = .idle
         speechRecognizer.resetSession()
+        stopMicTest()
         llmTimeoutTask?.cancel()
         stopRecordingTimer()
-        status = .idle
         liveTranscript = ""
         audioLevel = 0
         clearMessages()

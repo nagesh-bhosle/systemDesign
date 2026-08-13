@@ -137,8 +137,8 @@ struct SettingsView: View {
                         appState.startMicTest()
                     }
                 }
-                .disabled(appState.status == .recording || appState.status == .transcribing)
-                .accessibilityLabel("Check microphone")
+                .disabled(!appState.isMicTestRunning && (appState.status == .recording || appState.status == .transcribing))
+                .accessibilityLabel(appState.isMicTestRunning ? "Stop microphone test" : "Check microphone")
 
                 if appState.isMicTestRunning {
                     VStack(alignment: .leading, spacing: 6) {

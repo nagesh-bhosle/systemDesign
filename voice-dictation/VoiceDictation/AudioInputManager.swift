@@ -2,13 +2,12 @@
 //  AudioInputManager.swift
 //  VoiceDictation
 //
-//  Lists Core Audio input devices, applies the selected mic, and runs a live level test.
+//  Lists Core Audio input devices and selects the system default input.
+//  Dictation and the mic test share one AVAudioEngine in SpeechRecognizerService.
 //
 
 import Foundation
-import AVFoundation
 import CoreAudio
-import AudioToolbox
 import os
 
 struct AudioInputDevice: Identifiable, Hashable {
@@ -69,30 +68,34 @@ enum AudioInputManager {
         return AudioInputDevice(uid: uid, deviceID: deviceID, name: name)
     }
 
-    static func apply(uid: String, to inputNode: AVAudioInputNode) {
-        guard !uid.isEmpty else { return }
+    /// Sets the Mac's default input so AVAudioEngine picks up the chosen mic.
+    @discardableResult
+    static func setDefaultInput(uid: String) -> Bool {
+        guard !uid.isEmpty else { return false }
         guard let device = inputDevices().first(where: { $0.uid == uid }) else {
             logger.info("Preferred input UID not found: \(uid, privacy: .public)")
-            return
-        }
-        guard let audioUnit = inputNode.audioUnit else {
-            logger.warning("Input node has no audio unit yet")
-            return
+            return false
         }
         var id = device.deviceID
-        let status = AudioUnitSetProperty(
-            audioUnit,
-            kAudioOutputUnitProperty_CurrentDevice,
-            kAudioUnitScope_Global,
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let status = AudioObjectSetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
             0,
-            &id,
-            UInt32(MemoryLayout<AudioDeviceID>.size)
+            nil,
+            UInt32(MemoryLayout<AudioDeviceID>.size),
+            &id
         )
         if status != noErr {
-            logger.warning("Could not set input device \(device.name, privacy: .public): \(status)")
-        } else {
-            logger.info("Using input: \(device.name, privacy: .public)")
+            logger.warning("Could not set default input \(device.name, privacy: .public): \(status)")
+            return false
         }
+        logger.info("Default input: \(device.name, privacy: .public)")
+        return true
     }
 
     private static func inputChannelCount(_ deviceID: AudioDeviceID) -> Int {
@@ -105,7 +108,10 @@ enum AudioInputManager {
         guard AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &dataSize) == noErr, dataSize > 0 else {
             return 0
         }
-        let raw = UnsafeMutableRawPointer.allocate(byteCount: Int(dataSize), alignment: MemoryLayout<AudioBufferList>.alignment)
+        let raw = UnsafeMutableRawPointer.allocate(
+            byteCount: Int(dataSize),
+            alignment: MemoryLayout<AudioBufferList>.alignment
+        )
         defer { raw.deallocate() }
         guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &dataSize, raw) == noErr else {
             return 0
@@ -126,61 +132,5 @@ enum AudioInputManager {
         let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &cfString)
         guard status == noErr, let cfString else { return nil }
         return cfString.takeUnretainedValue() as String
-    }
-}
-
-final class MicrophoneTester {
-    private let logger = Logger(subsystem: "com.nagesh.voicedictation", category: "MicTest")
-    private let engine = AVAudioEngine()
-    private var tapInstalled = false
-    var onLevel: ((Float) -> Void)?
-
-    func start(deviceUID: String?) throws {
-        stop()
-
-        let input = engine.inputNode
-        engine.prepare()
-        if let deviceUID, !deviceUID.isEmpty {
-            AudioInputManager.apply(uid: deviceUID, to: input)
-        }
-
-        let format = input.outputFormat(forBus: 0)
-        guard format.channelCount > 0, format.sampleRate > 0 else {
-            throw SpeechRecognizerError.invalidAudioFormat
-        }
-
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            self?.publishLevel(from: buffer)
-        }
-        tapInstalled = true
-        try engine.start()
-    }
-
-    func stop() {
-        if tapInstalled {
-            engine.inputNode.removeTap(onBus: 0)
-            tapInstalled = false
-        }
-        if engine.isRunning {
-            engine.stop()
-        }
-        engine.reset()
-        onLevel?(0)
-    }
-
-    private func publishLevel(from buffer: AVAudioPCMBuffer) {
-        guard let channelData = buffer.floatChannelData?[0] else { return }
-        let frameLength = Int(buffer.frameLength)
-        guard frameLength > 0 else { return }
-        var sum: Float = 0
-        for index in 0..<frameLength {
-            let sample = channelData[index]
-            sum += sample * sample
-        }
-        let rms = sqrt(sum / Float(frameLength))
-        let level = min(1.0, rms * 18)
-        DispatchQueue.main.async { [weak self] in
-            self?.onLevel?(level)
-        }
     }
 }

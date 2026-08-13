@@ -3,6 +3,7 @@
 //  VoiceDictation
 //
 //  On-device speech recognition using Apple's SFSpeechRecognizer.
+//  One AVAudioEngine is shared by dictation and the microphone test.
 //
 
 import Foundation
@@ -18,6 +19,7 @@ enum SpeechRecognizerError: LocalizedError {
     case recognitionFailed(Error)
     case cancelled
     case onDeviceUnavailable
+    case microphoneBusy
 
     var errorDescription: String? {
         switch self {
@@ -26,15 +28,17 @@ enum SpeechRecognizerError: LocalizedError {
         case .couldNotCreateRequest:
             return "Could not create recognition request."
         case .invalidAudioFormat:
-            return "Audio input format is invalid. Check microphone permission."
+            return "Audio input format is invalid. Check microphone permission and the selected mic."
         case .audioEngineStartFailed(let error):
-            return "Could not start audio engine: \(error.localizedDescription)"
+            return "Could not start the microphone: \(error.localizedDescription)"
         case .recognitionFailed(let error):
             return "Recognition failed: \(error.localizedDescription)"
         case .cancelled:
             return "Recognition was cancelled."
         case .onDeviceUnavailable:
             return "On-device speech recognition is not available. Using server-based recognition instead."
+        case .microphoneBusy:
+            return "The microphone is busy. Stop the mic test and try again."
         }
     }
 }
@@ -46,8 +50,7 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
     private var recognitionTask: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
     private var tapInstalled = false
-    /// Soft gain so quiet laptop mics still reach the recognizer. Clipped to [-1, 1].
-    private let inputGain: Float = 4.0
+    private var isMonitoring = false
 
     var preferredInputUID: String = ""
 
@@ -88,6 +91,7 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
 
     deinit {
         cancel()
+        stopCaptureGraph()
     }
 
     // MARK: - SFSpeechRecognizerDelegate
@@ -109,16 +113,6 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
         } else {
             logger.info("Speech recognizer became available")
         }
-    }
-
-    // MARK: - Thread-safe state accessors
-
-    private var hasCompleted: Bool {
-        stateQueue.sync { _hasCompleted }
-    }
-
-    private var isRunning: Bool {
-        stateQueue.sync { _isRunning }
     }
 
     private var lastPartialText: String {
@@ -153,10 +147,37 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
         }
     }
 
+    // MARK: - Microphone test (same engine as dictation)
+
+    func startMonitoring() throws {
+        cancelRecognitionIfNeeded(notify: true)
+        stopCaptureGraph()
+        applyPreferredInput()
+
+        audioEngine.prepare()
+        let format = audioEngine.inputNode.outputFormat(forBus: 0)
+        guard format.channelCount > 0, format.sampleRate > 0 else {
+            throw SpeechRecognizerError.invalidAudioFormat
+        }
+
+        try beginInputTap(bufferSize: 1024, appendToRecognizer: false)
+        isMonitoring = true
+    }
+
+    func stopMonitoring() {
+        guard isMonitoring else { return }
+        isMonitoring = false
+        stopCaptureGraph()
+        DispatchQueue.main.async { [weak self] in
+            self?.onAudioLevel?(0)
+        }
+    }
+
     // MARK: - Start / Stop / Cancel
 
     func startRecognition(completion: @escaping (Result<String, Error>) -> Void) {
-        cancel()
+        cancelRecognitionIfNeeded(notify: true)
+        stopCaptureGraph()
         onDeviceFallbackMessage = nil
 
         guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
@@ -192,8 +213,26 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             recognitionRequest.requiresOnDeviceRecognition = false
         }
 
+        applyPreferredInput()
+        audioEngine.prepare()
+
+        let recordingFormat = audioEngine.inputNode.outputFormat(forBus: 0)
+        guard recordingFormat.channelCount > 0, recordingFormat.sampleRate > 0 else {
+            stopCaptureGraph()
+            finish(with: .failure(SpeechRecognizerError.invalidAudioFormat))
+            return
+        }
+
+        do {
+            try beginInputTap(bufferSize: 1024, appendToRecognizer: true)
+        } catch {
+            stopCaptureGraph()
+            finish(with: .failure(SpeechRecognizerError.audioEngineStartFailed(error)))
+            return
+        }
+
         recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
-            guard let self = self else { return }
+            guard let self else { return }
 
             if let result = result {
                 let text = result.bestTranscription.formattedString
@@ -211,90 +250,103 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
                 self.handleRecognitionError(error)
             }
         }
-
-        let inputNode = audioEngine.inputNode
-        audioEngine.prepare()
-        if !preferredInputUID.isEmpty {
-            AudioInputManager.apply(uid: preferredInputUID, to: inputNode)
-        }
-        enableVoiceProcessingIfPossible(on: inputNode)
-
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-
-        guard recordingFormat.channelCount > 0, recordingFormat.sampleRate > 0 else {
-            teardownEngine()
-            finish(with: .failure(SpeechRecognizerError.invalidAudioFormat))
-            return
-        }
-
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: recordingFormat) { [weak self] buffer, _ in
-            guard let self else { return }
-            let boosted = self.boostedBuffer(buffer, gain: self.inputGain)
-            self.recognitionRequest?.append(boosted)
-            self.publishAudioLevel(from: boosted)
-        }
-        tapInstalled = true
-
-        do {
-            try audioEngine.start()
-        } catch {
-            teardownEngine()
-            finish(with: .failure(SpeechRecognizerError.audioEngineStartFailed(error)))
-        }
     }
 
     func stopRecognition() {
-        stateQueue.sync {
-            guard _isRunning else { return }
-        }
+        let running = stateQueue.sync { _isRunning }
+        guard running else { return }
 
         recognitionRequest?.endAudio()
-        teardownEngine()
-
+        stopCaptureGraph()
         stateQueue.sync { _isRunning = false }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-            guard let self = self else { return }
-            let shouldFinish: Bool = self.stateQueue.sync {
-                if !self._hasCompleted {
-                    return true
-                }
-                return false
-            }
+            guard let self else { return }
+            let shouldFinish = self.stateQueue.sync { !self._hasCompleted }
             if shouldFinish {
-                let partial = self.lastPartialText
-                self.finish(with: .success(partial))
+                self.finish(with: .success(self.lastPartialText))
             }
         }
     }
 
     func cancel() {
+        cancelRecognitionIfNeeded(notify: true)
+        stopCaptureGraph()
+    }
+
+    func resetSession() {
+        cancel()
+    }
+
+    // MARK: - Private
+
+    private func applyPreferredInput() {
+        guard !preferredInputUID.isEmpty else { return }
+        AudioInputManager.setDefaultInput(uid: preferredInputUID)
+    }
+
+    private func beginInputTap(bufferSize: AVAudioFrameCount, appendToRecognizer: Bool) throws {
+        if tapInstalled {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
+
+        let install: () -> Void = { [weak self] in
+            guard let self else { return }
+            self.audioEngine.inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: nil) { [weak self] buffer, _ in
+                guard let self else { return }
+                if appendToRecognizer {
+                    self.recognitionRequest?.append(buffer)
+                }
+                self.publishAudioLevel(from: buffer)
+            }
+            self.tapInstalled = true
+        }
+
+        install()
+        do {
+            try audioEngine.start()
+        } catch {
+            logger.warning("Audio engine start failed, retrying after reset: \(error.localizedDescription, privacy: .public)")
+            stopCaptureGraph()
+            audioEngine.reset()
+            applyPreferredInput()
+            audioEngine.prepare()
+            install()
+            try audioEngine.start()
+        }
+    }
+
+    private func cancelRecognitionIfNeeded(notify: Bool) {
         stateQueue.sync {
             let wasRunning = _isRunning && !_hasCompleted
             _hasCompleted = true
             _isRunning = false
             let cb = _completion
             _completion = nil
-            if wasRunning, let cb = cb {
+            if notify, wasRunning, let cb {
                 DispatchQueue.main.async {
                     cb(.failure(SpeechRecognizerError.cancelled))
                 }
             }
         }
-
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest = nil
-        teardownEngine()
+        isMonitoring = false
     }
 
-    /// Tear down the audio graph so the next recording can start even after a failed session.
-    func resetSession() {
-        cancel()
-        teardownEngine()
+    /// Stop the hardware graph without `reset()`, which can wedge the input unit.
+    private func stopCaptureGraph() {
+        if tapInstalled {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
+        if audioEngine.isRunning {
+            audioEngine.stop()
+        }
+        isMonitoring = false
     }
-
-    // MARK: - Private
 
     private func publishAudioLevel(from buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData?[0] else { return }
@@ -307,7 +359,7 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             sum += sample * sample
         }
         let rms = sqrt(sum / Float(frameLength))
-        let level = min(1.0, rms * 8)
+        let level = min(1.0, rms * 16)
         DispatchQueue.main.async { [weak self] in
             self?.onAudioLevel?(level)
         }
@@ -328,7 +380,7 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             return callback
         }
 
-        teardownEngine()
+        stopCaptureGraph()
         recognitionTask = nil
         recognitionRequest = nil
 
@@ -362,48 +414,9 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
 
     private func isNoSpeechError(_ error: NSError) -> Bool {
         if error.domain == "kAFAssistantErrorDomain" {
-            // 1110 no speech, 203 retry/timeout, 1101/1107 recognition failure with silence
             return [1110, 1101, 1107, 203, 1700].contains(error.code)
         }
         let description = error.localizedDescription.lowercased()
         return description.contains("no speech") || description.contains("no match")
-    }
-
-    private func teardownEngine() {
-        if tapInstalled {
-            audioEngine.inputNode.removeTap(onBus: 0)
-            tapInstalled = false
-        }
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
-        audioEngine.reset()
-    }
-
-    private func enableVoiceProcessingIfPossible(on inputNode: AVAudioInputNode) {
-        do {
-            if !inputNode.isVoiceProcessingEnabled {
-                try inputNode.setVoiceProcessingEnabled(true)
-            }
-        } catch {
-            logger.info("Voice processing unavailable: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
-    private func boostedBuffer(_ buffer: AVAudioPCMBuffer, gain: Float) -> AVAudioPCMBuffer {
-        guard gain != 1, buffer.format.commonFormat == .pcmFormatFloat32 else { return buffer }
-        guard let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameCapacity) else {
-            return buffer
-        }
-        copy.frameLength = buffer.frameLength
-        guard let src = buffer.floatChannelData, let dst = copy.floatChannelData else { return buffer }
-        let channels = Int(buffer.format.channelCount)
-        let frames = Int(buffer.frameLength)
-        for channel in 0..<channels {
-            for frame in 0..<frames {
-                dst[channel][frame] = max(-1, min(1, src[channel][frame] * gain))
-            }
-        }
-        return copy
     }
 }

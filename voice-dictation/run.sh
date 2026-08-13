@@ -62,7 +62,6 @@ if swiftc -O \
     -framework ServiceManagement \
     -framework CryptoKit \
     -framework CoreAudio \
-    -framework AudioToolbox \
     VoiceDictation/*.swift \
     -o "$BINARY" 2>&1; then
     echo -e "${GREEN}Built with swiftc${NC}"

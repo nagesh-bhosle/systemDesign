@@ -29,11 +29,6 @@ struct MicTestView: View {
                     Text(device.name).tag(device.uid)
                 }
             }
-            .onChange(of: appState.selectedInputUID) { _, _ in
-                if appState.isMicTestRunning {
-                    appState.startMicTest()
-                }
-            }
             .accessibilityLabel("Microphone input")
 
             VStack(alignment: .leading, spacing: 6) {
@@ -46,7 +41,7 @@ struct MicTestView: View {
                             .fill(Color.secondary.opacity(0.15))
                         Capsule()
                             .fill(meterColor)
-                            .frame(width: max(8, geo.size.width * appState.micTestLevel))
+                            .frame(width: max(8, geo.size.width * CGFloat(appState.micTestLevel)))
                     }
                 }
                 .frame(height: 10)
@@ -60,7 +55,6 @@ struct MicTestView: View {
                         appState.startMicTest()
                     }
                 }
-                .keyboardShortcut(.defaultAction)
 
                 Spacer()
 
@@ -68,6 +62,7 @@ struct MicTestView: View {
                     appState.stopMicTest()
                     dismiss()
                 }
+                .keyboardShortcut(.defaultAction)
             }
         }
         .padding(20)

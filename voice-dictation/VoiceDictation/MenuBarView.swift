@@ -40,7 +40,9 @@ struct MenuBarView: View {
             HistoryView()
                 .environmentObject(appState)
         }
-        .sheet(isPresented: $showMicTest) {
+        .sheet(isPresented: $showMicTest, onDismiss: {
+            appState.stopMicTest()
+        }) {
             MicTestView()
                 .environmentObject(appState)
         }
