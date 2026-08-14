@@ -97,6 +97,7 @@ final class AbacusLLMService {
         You are a speech-to-text cleanup assistant. The user dictated text using voice recognition. \
         Your job: remove filler words (um, uh, like, you know), fix grammar, fix punctuation, \
         and make the text clean and readable. Preserve the original meaning. \
+        Keep the ENTIRE dictation from start to finish — do not summarize, and do not return only the last sentence. \
         Return ONLY the cleaned text, nothing else. No explanations, no quotes.
         """
         if let styleHint, !styleHint.isEmpty {
@@ -110,7 +111,7 @@ final class AbacusLLMService {
                 ["role": "user", "content": text]
             ],
             "temperature": 0.3,
-            "max_tokens": 4096
+            "max_tokens": 8192
         ]
 
         do {

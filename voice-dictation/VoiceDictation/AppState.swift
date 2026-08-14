@@ -477,7 +477,10 @@ final class AppState: ObservableObject {
 
                 self.speechRecognizer.onPartialResult = { text in
                     Task { @MainActor in
-                        self.liveTranscript = text
+                        // Never replace a longer accumulated transcript with a later chunk's last line.
+                        if text.count >= self.liveTranscript.count {
+                            self.liveTranscript = text
+                        }
                     }
                 }
 
@@ -489,13 +492,17 @@ final class AppState: ObservableObject {
                         switch result {
                         case .success(let text):
                             self.transcriptionProcessed = true
-                            self.rawTranscript = text
-                            self.liveTranscript = ""
+                            let joined = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                            let best = joined.count >= self.liveTranscript.count
+                                ? joined
+                                : self.liveTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+                            self.rawTranscript = best
+                            self.liveTranscript = best
                             if let fallback = self.speechRecognizer.onDeviceFallbackMessage {
                                 self.statusMessage = fallback
                                 self.scheduleStatusMessageAutoClear()
                             }
-                            self.processTranscript(text)
+                            self.processTranscript(best)
                         case .failure(let error):
                             self.transcriptionProcessed = true
                             if self.status == .idle { return }
@@ -541,7 +548,10 @@ final class AppState: ObservableObject {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
             if self.status == .transcribing && !self.transcriptionProcessed {
-                let fallback = self.liveTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+                let fromService = self.speechRecognizer.currentTranscript
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let fromUI = self.liveTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+                let fallback = fromService.count >= fromUI.count ? fromService : fromUI
                 if !fallback.isEmpty {
                     self.logger.warning("Transcription watchdog fired — using partial transcript (\(fallback.count) chars)")
                     self.transcriptionProcessed = true

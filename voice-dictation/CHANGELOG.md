@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.3 — 2026-08-14
+
+- Long dictation pastes the **full** transcript, not only the last line: chunk partials are merged (Apple often reports a rolling last utterance), `_lastPartialText` is never replaced with the current chunk alone, and auto-paste inserts once at the caret (Accessibility no longer sets selected text in a way that replaces the whole field).
+- STT chunks are ~20s with a 2s overlap. LLM cleanup is instructed not to drop earlier sentences.
+
 ## 0.5.2 — 2026-08-13
 
 - Long dictation: Apple Speech stops around one minute per request. Recordings are split into ~40s chunks, transcribed in order, and joined so you can speak for minutes.

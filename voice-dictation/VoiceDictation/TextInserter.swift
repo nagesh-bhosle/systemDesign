@@ -185,31 +185,67 @@ final class TextInserter {
     }
 
     private func insertTextViaAccessibility(_ text: String, into element: AXUIElement) -> Bool {
+        // Splice at the caret first. Setting kAXSelectedTextAttribute often replaces
+        // the entire field (Chrome / Electron / Slack), which looks like "only the last line".
+        if insertBySplicingValue(text, into: element) {
+            return true
+        }
+
+        var beforeRef: CFTypeRef?
+        let hadBefore = AXUIElementCopyAttributeValue(
+            element,
+            kAXValueAttribute as CFString,
+            &beforeRef
+        ) == .success
+        let before = hadBefore ? (beforeRef as? String) : nil
+
         let selectedStatus = AXUIElementSetAttributeValue(
             element,
             kAXSelectedTextAttribute as CFString,
             text as CFTypeRef
         )
-        if selectedStatus == .success {
-            return true
-        }
+        guard selectedStatus == .success else { return false }
 
+        var afterRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &afterRef) == .success,
+           let after = afterRef as? String,
+           let before,
+           !before.isEmpty,
+           after == text,
+           before != text {
+            let restored = before + text
+            let restoreStatus = AXUIElementSetAttributeValue(
+                element,
+                kAXValueAttribute as CFString,
+                restored as CFTypeRef
+            )
+            return restoreStatus == .success
+        }
+        return true
+    }
+
+    /// Insert `text` at the selected range (or append) by rewriting AXValue. Does not replace the whole document.
+    private func insertBySplicingValue(_ text: String, into element: AXUIElement) -> Bool {
         var valueRef: CFTypeRef?
-        var rangeRef: CFTypeRef?
         let valueStatus = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef)
-        let rangeStatus = AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeRef)
-        guard valueStatus == .success, rangeStatus == .success,
-              let current = valueRef as? String,
-              let rangeRef else {
+        guard valueStatus == .success, let current = valueRef as? String else {
             return false
         }
 
-        var cfRange = CFRange()
-        guard AXValueGetValue(rangeRef as! AXValue, .cfRange, &cfRange) else { return false }
+        var rangeRef: CFTypeRef?
+        let rangeStatus = AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeRef)
 
         let ns = current as NSString
-        let location = max(0, min(Int(cfRange.location), ns.length))
-        let length = max(0, min(Int(cfRange.length), ns.length - location))
+        var location = ns.length
+        var length = 0
+        if rangeStatus == .success, let rangeRef {
+            var cfRange = CFRange()
+            if AXValueGetValue(rangeRef as! AXValue, .cfRange, &cfRange) {
+                location = max(0, min(Int(cfRange.location), ns.length))
+                length = max(0, min(Int(cfRange.length), ns.length - location))
+            }
+        }
+
         let updated = ns.replacingCharacters(in: NSRange(location: location, length: length), with: text)
         let setStatus = AXUIElementSetAttributeValue(
             element,
@@ -385,11 +421,12 @@ final class TextInserter {
         }
     }
 
-    /// True only if the focused field changed and now contains this take.
+    /// True only if the focused field changed and now contains this take (start and end).
     private func fieldConfirmsInsert(transcript: String, before: String?) -> Bool {
-        let needle = String(transcript.prefix(80))
-        guard !needle.isEmpty, let after = focusedElementString() else { return false }
-        guard after.contains(needle) else { return false }
+        let head = String(transcript.prefix(80))
+        let tail = String(transcript.suffix(min(80, transcript.count)))
+        guard !head.isEmpty, let after = focusedElementString() else { return false }
+        guard after.contains(head), after.contains(tail) else { return false }
         if let before, after == before {
             return false
         }

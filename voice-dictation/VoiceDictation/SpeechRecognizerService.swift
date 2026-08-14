@@ -95,14 +95,17 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
         TempRecordingCleanup.purgeOrphanedFiles()
     }
 
-    /// Apple's Speech framework drops tasks around one minute of audio.
-    /// Chunk long takes so minutes of speech still transcribe.
-    private static let sttChunkSeconds: TimeInterval = 40
-    private static let sttSecondsPerChunk: TimeInterval = 55
+    /// Apple's Speech framework drops tasks around one minute of audio, and
+    /// long URL requests often report only the latest utterance. Short chunks
+    /// plus overlap keep minutes of speech instead of the last line.
+    private static let sttChunkSeconds: TimeInterval = 20
+    private static let sttChunkOverlapSeconds: TimeInterval = 2
+    private static let sttSecondsPerChunk: TimeInterval = 40
 
     /// Seconds to wait for URL transcription across all chunks.
     func recommendedTranscribeTimeout() -> TimeInterval {
-        let chunks = max(1, ceil(lastRecordingDuration / Self.sttChunkSeconds))
+        let step = max(1, Self.sttChunkSeconds - Self.sttChunkOverlapSeconds)
+        let chunks = max(1, ceil(lastRecordingDuration / step))
         return min(900, chunks * Self.sttSecondsPerChunk + 20)
     }
 
@@ -116,6 +119,11 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
 
     private var lastPartialText: String {
         stateQueue.sync { _lastPartialText }
+    }
+
+    /// Full joined transcript so far (never the current chunk alone).
+    var currentTranscript: String {
+        lastPartialText
     }
 
     func requestAuthorization(completion: @escaping (PermissionAuthResult) -> Void) {
@@ -273,7 +281,11 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
 
         let chunks: [URL]
         do {
-            chunks = try audioChunks(from: url, chunkSeconds: Self.sttChunkSeconds)
+            chunks = try audioChunks(
+                from: url,
+                chunkSeconds: Self.sttChunkSeconds,
+                overlapSeconds: Self.sttChunkOverlapSeconds
+            )
         } catch {
             logger.warning("Could not split recording, transcribing whole file: \(error.localizedDescription, privacy: .public)")
             chunks = [url]
@@ -307,13 +319,11 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             return
         }
 
-        transcribeOneChunk(url: chunks[index], generation: generation) { [weak self] chunkText in
+        transcribeOneChunk(url: chunks[index], priorAccumulated: accumulated, generation: generation) { [weak self] chunkText in
             guard let self else { return }
-            let next = Self.joinTranscripts(accumulated, chunkText)
-            self.stateQueue.sync { self._lastPartialText = next }
-            DispatchQueue.main.async {
-                self.onPartialResult?(next)
-            }
+            let next = Self.mergeGrowingTranscript(accumulated, chunkText)
+            self.publishPartial(next)
+            self.logger.info("Chunk \(index + 1)/\(chunks.count) joined to \(next.count, privacy: .public) chars")
             self.transcribeChunks(
                 chunks,
                 index: index + 1,
@@ -324,15 +334,57 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
         }
     }
 
-    private static func joinTranscripts(_ left: String, _ right: String) -> String {
-        let a = left.trimmingCharacters(in: .whitespacesAndNewlines)
-        let b = right.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func publishPartial(_ text: String) {
+        stateQueue.sync { _lastPartialText = text }
+        DispatchQueue.main.async { [weak self] in
+            self?.onPartialResult?(text)
+        }
+    }
+
+    /// Join chunk results and stitch Apple's rolling last-utterance window.
+    private static func mergeGrowingTranscript(_ previous: String, _ incoming: String) -> String {
+        let a = previous.trimmingCharacters(in: .whitespacesAndNewlines)
+        let b = incoming.trimmingCharacters(in: .whitespacesAndNewlines)
         if a.isEmpty { return b }
         if b.isEmpty { return a }
+        if b == a { return a }
+        if b.hasPrefix(a) { return b }
+        if a.hasPrefix(b) { return a }
+        if b.contains(a) { return b }
+        if a.contains(b) { return a }
+        if let stitched = stitchOverlap(a, b) { return stitched }
         return a + " " + b
     }
 
-    private func transcribeOneChunk(url: URL, generation: UInt64, completion: @escaping (String) -> Void) {
+    private static func stitchOverlap(_ left: String, _ right: String) -> String? {
+        let leftWords = left.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        let rightWords = right.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        let maxN = min(leftWords.count, rightWords.count)
+        guard maxN > 0 else { return nil }
+        for n in stride(from: maxN, through: 1, by: -1) {
+            if leftWords.suffix(n) == rightWords.prefix(n) {
+                return (leftWords + rightWords.dropFirst(n)).joined(separator: " ")
+            }
+        }
+        return nil
+    }
+
+    private static func textFromTranscription(_ transcription: SFTranscription) -> String {
+        let formatted = transcription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
+        if transcription.segments.isEmpty { return formatted }
+        let fromSegments = transcription.segments
+            .map(\.substring)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return fromSegments.count > formatted.count ? fromSegments : formatted
+    }
+
+    private func transcribeOneChunk(
+        url: URL,
+        priorAccumulated: String,
+        generation: UInt64,
+        completion: @escaping (String) -> Void
+    ) {
         guard isCurrentSession(generation), let speechRecognizer else {
             completion("")
             return
@@ -354,12 +406,18 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             request.requiresOnDeviceRecognition = false
         }
 
-        var chunkPartial = ""
+        var chunkMerged = ""
         var chunkFinished = false
         let finishChunk: (String) -> Void = { text in
             guard !chunkFinished else { return }
             chunkFinished = true
             completion(text)
+        }
+
+        let absorb: (String) -> Void = { [weak self] incoming in
+            guard let self else { return }
+            chunkMerged = Self.mergeGrowingTranscript(chunkMerged, incoming)
+            self.publishPartial(Self.mergeGrowingTranscript(priorAccumulated, chunkMerged))
         }
 
         recognitionTask?.cancel()
@@ -368,23 +426,21 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             guard self.isCurrentSession(generation) else { return }
 
             if let result = result {
-                let text = result.bestTranscription.formattedString
-                chunkPartial = text
+                absorb(Self.textFromTranscription(result.bestTranscription))
                 if result.isFinal {
-                    finishChunk(text)
+                    finishChunk(chunkMerged)
                     return
                 }
-                self.stateQueue.sync { self._lastPartialText = text }
             }
 
             if let error = error {
                 let nsError = error as NSError
                 if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
-                    finishChunk(chunkPartial)
+                    finishChunk(chunkMerged)
                     return
                 }
-                if !chunkPartial.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    finishChunk(chunkPartial)
+                if !chunkMerged.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    finishChunk(chunkMerged)
                     return
                 }
                 if self.isNoSpeechError(nsError) {
@@ -392,25 +448,27 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
                     return
                 }
                 self.logger.warning("Chunk transcription error: \(error.localizedDescription, privacy: .public)")
-                finishChunk(chunkPartial)
+                finishChunk(chunkMerged)
             }
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.sttSecondsPerChunk) { [weak self] in
             guard let self, !chunkFinished else { return }
             guard self.isCurrentSession(generation) else { return }
-            self.logger.warning("Chunk transcription timed out — keeping partial text")
+            self.logger.warning("Chunk transcription timed out — keeping \(chunkMerged.count, privacy: .public) merged chars")
             self.recognitionTask?.cancel()
-            finishChunk(chunkPartial)
+            finishChunk(chunkMerged)
         }
     }
 
-    /// Split a linear PCM recording into pieces under Apple's ~1 minute STT limit.
-    private func audioChunks(from url: URL, chunkSeconds: TimeInterval) throws -> [URL] {
+    /// Split a linear PCM recording into overlapping pieces under Apple's STT limit.
+    private func audioChunks(from url: URL, chunkSeconds: TimeInterval, overlapSeconds: TimeInterval) throws -> [URL] {
         let input = try AVAudioFile(forReading: url)
         let format = input.processingFormat
         let totalFrames = input.length
         let framesPerChunk = AVAudioFrameCount(max(1, format.sampleRate * chunkSeconds))
+        let overlapFrames = AVAudioFramePosition(max(0, format.sampleRate * overlapSeconds))
+        let stepFrames = max(1, AVAudioFramePosition(framesPerChunk) - overlapFrames)
         if totalFrames <= AVAudioFramePosition(framesPerChunk) {
             return [url]
         }
@@ -439,7 +497,8 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             )
             try output.write(from: buffer)
             urls.append(chunkURL)
-            start += AVAudioFramePosition(count)
+            if remaining <= framesPerChunk { break }
+            start += stepFrames
             index += 1
         }
         return urls.isEmpty ? [url] : urls

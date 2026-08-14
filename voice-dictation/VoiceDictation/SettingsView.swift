@@ -465,7 +465,7 @@ struct SettingsView: View {
     private var aboutSection: some View {
         Form {
             Section("Voice Dictation") {
-                Text("Version 0.5.2")
+                Text("Version 0.5.3")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Text("Speech recognition runs on your Mac. Press the global hotkey to start and stop dictation. Text is pasted at your cursor or copied to the clipboard.")
