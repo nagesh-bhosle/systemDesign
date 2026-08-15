@@ -4,7 +4,7 @@ A WisprFlow-inspired macOS menu bar app that lets you speak and inserts the tran
 
 **Version 0.5.3**
 
-See `PRODUCT_ROADMAP.md` for the installable Mac app contract (Applications folder, updates, signing). See `CHANGELOG.md` for release notes.
+See `MANDATORY_FEATURES.md` for the four must-have features and test cases (run after every change). See `PROJECT_REVIEW.md` for the 0.5.3 review. See `PRODUCT_ROADMAP.md` for the installable Mac app contract. See `CHANGELOG.md` for release notes.
 
 Known-good **headset + laptop** dictation restore: `git checkout voice-dictation-working` (does not move with 0.5.0).
 

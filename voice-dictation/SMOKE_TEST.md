@@ -2,6 +2,8 @@
 
 Known-good restore: `git checkout voice-dictation-working` then `./run.sh`.
 
+**Mandatory product tests (5 min record, paste at cursor, optional LLM, hotkey + floating window):** `MANDATORY_FEATURES.md`. Run that suite after every feature.
+
 Run after `./run.sh`. Fail if any step crashes, wedges Start, or drops the headset.
 
 1. **Headset (if you have one):** System Settings → Sound → Input = headset. Check microphone → Start test → meter moves. Done. **Start** dictation → speak → **Stop**. Headset stays connected. Text appears.

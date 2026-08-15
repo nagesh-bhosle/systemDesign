@@ -102,3 +102,5 @@ Keep these unless a new snapshot is tagged after testing **both** laptop mic and
 ## When to do this work
 
 Do productization (Sparkle, notarization, `/Applications` DMG, website) **when time allows**. This file is the contract so later work does not invent a second identity or a second audio path.
+
+**Must not regress:** `MANDATORY_FEATURES.md` (5-minute record, paste at cursor, optional LLM, hotkey + floating window).
