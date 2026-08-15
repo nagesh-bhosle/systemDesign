@@ -88,7 +88,7 @@ Out of scope remains skipped (notarization, Sparkle, custom hotkey, Whisper).
 
 ### B5. Codable LLM parse + max_tokens (B22, B29)
 - [x] **File:** `AbacusLLMService.swift`
-- **Change:** Codable for choices/message/content and error.message. `max_tokens` = 1024. Default model as B4.
+- **Change:** Codable for choices/message/content and error.message. `max_tokens` = 8192 (sized for long dictations). Default model as B4.
 - **Done when:** No `JSONSerialization` for the success path (request body may still use it or Codable).
 
 ### B6. Synchronize data task (B23)

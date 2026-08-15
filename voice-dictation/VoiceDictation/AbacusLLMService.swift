@@ -66,11 +66,21 @@ final class AbacusLLMService {
 
     static let defaultModel = "meta-llama/Meta-Llama-3.1-8B-Instruct"
     static let requestTimeout: TimeInterval = 15
+    static let maxRequestTimeout: TimeInterval = 60
+
+    /// Scales the request timeout with transcript length so long dictations
+    /// don't get cut short.  Base 15 s + 1 s per ~200 chars, capped at 60 s.
+    static func timeoutFor(textLength: Int) -> TimeInterval {
+        min(maxRequestTimeout, requestTimeout + Double(textLength) / 200.0)
+    }
 
     init() {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = Self.requestTimeout
-        config.timeoutIntervalForResource = 30
+        // Per-request URLRequest timeoutInterval overrides this; set the
+        // session default to the max so long dictations aren't prematurely
+        // killed at the URLSession level.
+        config.timeoutIntervalForRequest = Self.maxRequestTimeout
+        config.timeoutIntervalForResource = Self.maxRequestTimeout + 15
         config.waitsForConnectivity = true
         self.session = URLSession(configuration: config)
     }
@@ -88,7 +98,8 @@ final class AbacusLLMService {
             return
         }
 
-        var request = URLRequest(url: url, timeoutInterval: Self.requestTimeout)
+        let timeout = Self.timeoutFor(textLength: text.count)
+        var request = URLRequest(url: url, timeoutInterval: timeout)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
