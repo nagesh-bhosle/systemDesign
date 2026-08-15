@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Booking concurrency concepts</title>
+  <style>
+    :root { font-family: ui-sans-serif, system-ui, sans-serif; color: #102a43; background: #f0f4f8; }
+    body { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    h1 { margin-bottom: 4px; }
+    .sub { color: #486581; margin-bottom: 20px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+    button {
+      text-align: left; padding: 12px; border: 1px solid #bcccdc; border-radius: 8px;
+      background: #fff; cursor: pointer; font-size: 14px;
+    }
+    button:hover { border-color: #2b6cb0; }
+    button.bad { border-left: 4px solid #d64545; }
+    button.good { border-left: 4px solid #27ab83; }
+    pre {
+      background: #102a43; color: #d9e2ec; padding: 16px; border-radius: 8px;
+      overflow: auto; max-height: 70vh; font-size: 12px;
+    }
+    .bar { display: flex; gap: 8px; margin: 16px 0; }
+    .ok { color: #27ab83; font-weight: 700; }
+    .fail { color: #d64545; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <h1>Booking system — one API per concept</h1>
+  <p class="sub">Each button starts two (or more) concurrent users against the same row and returns a timeline you can step through in a debugger.</p>
+  <div class="bar">
+    <button onclick="get('/api/concepts')">GET catalog</button>
+    <button onclick="get('/api/concepts/state')">GET state</button>
+    <button onclick="post('/api/concepts/reset')">Reset all rows</button>
+  </div>
+  <div class="grid">
+    <button class="bad" onclick="post('/api/concepts/race-condition?users=2&delayMs=250')">1. Race condition (double book)</button>
+    <button class="good" onclick="post('/api/concepts/pessimistic-lock?users=2&delayMs=250')">2. Pessimistic lock FOR UPDATE</button>
+    <button class="good" onclick="post('/api/concepts/optimistic-lock?users=2&delayMs=250')">3. Optimistic lock @Version</button>
+    <button class="bad" onclick="post('/api/concepts/unsafe-inventory?users=2&delayMs=250')">4. Unsafe inventory (oversell)</button>
+    <button class="good" onclick="post('/api/concepts/atomic-update?users=2')">5. Atomic UPDATE + WHERE guard</button>
+    <button class="good" onclick="post('/api/concepts/pessimistic-inventory?users=3&quantity=2&delayMs=100')">6. Pessimistic inventory count</button>
+    <button class="bad" onclick="post('/api/concepts/unsafe-counter?users=2&incrementsEach=20&delayMs=5')">7. Unsafe counter (lost updates)</button>
+    <button class="good" onclick="post('/api/concepts/atomic-counter?users=2&incrementsEach=20')">8. Atomic counter</button>
+    <button class="good" onclick="post('/api/concepts/distributed-lock?users=2&delayMs=200')">9. Redis distributed lock</button>
+    <button class="good" onclick="post('/api/concepts/hold-and-confirm?users=2&holdSeconds=15')">10. Hold &amp; confirm</button>
+    <button class="good" onclick="post('/api/concepts/hold-and-confirm/confirm?userId=1')">10b. Confirm hold as user 1</button>
+    <button class="good" onclick="post('/api/concepts/unique-constraint?users=2&delayMs=200')">11. Unique constraint safety net</button>
+  </div>
+  <p id="banner"></p>
+  <pre id="out">Click a concept. Watch invariantHeld, users[], and timeline[].</pre>
+  <script>
+    const out = document.getElementById('out');
+    const banner = document.getElementById('banner');
+    async function get(url) {
+      const res = await fetch(url);
+      out.textContent = JSON.stringify(await res.json(), null, 2);
+      banner.textContent = url;
+    }
+    async function post(url) {
+      banner.textContent = 'Running ' + url + ' …';
+      const res = await fetch(url, { method: 'POST' });
+      const data = await res.json();
+      out.textContent = JSON.stringify(data, null, 2);
+      if (typeof data.invariantHeld === 'boolean') {
+        banner.innerHTML = data.title + ' — invariantHeld: <span class="' + (data.invariantHeld ? 'ok' : 'fail') + '">' + data.invariantHeld + '</span>';
+      } else {
+        banner.textContent = url;
+      }
+    }
+  </script>
+</body>
+</html>
