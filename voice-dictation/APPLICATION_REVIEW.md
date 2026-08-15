@@ -48,7 +48,7 @@ User confirmed: **laptop mic and Bluetooth headset both record.**
 
 8. **History / Settings sheets** — **Addressed in 0.5.0.** Dedicated `NSPanel` windows, same as mic test.
 
-9. **`ExceptionCatcher` is unused** by the recorder path. Harmless; can stay as a guard if engine code returns.
+9. **`ExceptionCatcher` removed** — Was unused dead code (never compiled by `run.sh`'s `*.swift` glob). Deleted in cleanup branch.
 
 10. **Custom vocabulary** — **Addressed in 0.5.0.** Whole-word lookarounds, escaped templates, skip 1-character / punctuation-only lines.
 

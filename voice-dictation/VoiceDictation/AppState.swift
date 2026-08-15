@@ -598,8 +598,10 @@ final class AppState: ObservableObject {
 
         let styleHint = toneStyleHint(for: TextInserter.shared.targetBundleIdentifier)
 
+        let llmTimeout = AbacusLLMService.timeoutFor(textLength: trimmed.count)
+
         llmTimeoutTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(AbacusLLMService.requestTimeout * 1_000_000_000))
+            try? await Task.sleep(nanoseconds: UInt64(llmTimeout * 1_000_000_000))
             guard !Task.isCancelled else { return }
             guard self.status == .enhancing, !self.llmTimedOut else { return }
             self.logger.warning("LLM enhancement timed out — using raw transcript")

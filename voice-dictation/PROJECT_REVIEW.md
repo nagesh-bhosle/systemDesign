@@ -33,9 +33,9 @@ Hotkey / menu / pill
 
 | | |
 |--|--|
-| **Status** | **Supported in design**, not auto-capped. Recorder has no 5:00 stop. STT is chunked because Apple ~1 minute/request. 0.5.2–0.5.3 exist specifically because long takes dropped or kept only the last line. |
+| **Status** | **Implemented.** Recorder auto-stops at 5:00 (`maxRecordingSeconds = 300`); a 4:50 warning timer fires first. STT is chunked because Apple ~1 minute/request. 0.5.2–0.5.3 exist specifically because long takes dropped or kept only the last line. |
 | **Risk** | 5-minute takes mean many chunks and a long wait. Chunk merge / AX replace bugs can still look like “only last line.” No XCTest; only manual `MANDATORY_FEATURES.md`. |
-| **Gap** | No explicit 5-minute auto-stop or progress “transcribing chunk 3/15.” Users may think the app died during STT. |
+| **Gap** | No progress “transcribing chunk 3/15.” Users may think the app died during STT. |
 
 ### M2 — Paste at cursor
 
@@ -50,7 +50,7 @@ Hotkey / menu / pill
 | | |
 |--|--|
 | **Status** | **Implemented.** Off by default. Keychain key, Verify, persisted toggle, text-only, timeout → raw paste. Prompt: do not return only the last sentence. `max_tokens` 8192. |
-| **Risk** | 15s request timeout may be tight for a 5-minute transcript. Model may still summarize. Needs network. |
+| **Risk** | Timeout now scales with transcript length (15 s base + 1 s per ~200 chars, capped at 60 s). Model may still summarize. Needs network. |
 | **Gap** | No offline local LLM. |
 
 ### M4 — Hotkey and floating window
@@ -75,7 +75,7 @@ Hotkey / menu / pill
 ## Remaining issues (not blockers for the gate, but real)
 
 1. **5-minute wait UX** — Transcribe can run several minutes with little feedback beyond “Transcribing…”.
-2. **No 5:00 auto-stop** — User can record longer than 5 minutes; STT cost grows. Optional: stop at 5:00 and transcribe.
+2. **5:00 auto-stop** — **Implemented in 0.5.3.** Recorder stops at 5:00 (`maxRecordingSeconds = 300`) with a 4:50 warning. No longer a gap.
 3. **Accessibility after unsigned install** — Still a support footgun.
 4. **Two app icons** — `~/Applications` vs `voice-dictation/build/` if you also run `./run.sh`.
 5. **No automated tests** — `swiftc` glob; no XCTest. Gate is manual (`MANDATORY_FEATURES.md`).
