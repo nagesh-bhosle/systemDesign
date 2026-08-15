@@ -479,10 +479,11 @@ final class AppState: ObservableObject {
 
                 self.speechRecognizer.onPartialResult = { text in
                     Task { @MainActor in
-                        // Never replace a longer accumulated transcript with a later chunk's last line.
-                        if text.count >= self.liveTranscript.count {
-                            self.liveTranscript = text
-                        }
+                        // Each partial is a full revision of the transcript
+                        // so far (Apple revises earlier words as context
+                        // grows). Always accept the latest partial — it is
+                        // the most accurate version, even if shorter.
+                        self.liveTranscript = text
                     }
                 }
 
@@ -501,9 +502,13 @@ final class AppState: ObservableObject {
                         case .success(let text):
                             self.transcriptionProcessed = true
                             let joined = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                            let best = joined.count >= self.liveTranscript.count
-                                ? joined
-                                : self.liveTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+                            // The final result from the service is the most
+                            // accurate — prefer it over the live partial.
+                            // Only fall back to the live transcript if the
+                            // service returned empty.
+                            let best = joined.isEmpty
+                                ? self.liveTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+                                : joined
                             self.rawTranscript = best
                             self.liveTranscript = best
                             if let fallback = self.speechRecognizer.onDeviceFallbackMessage {

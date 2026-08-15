@@ -418,7 +418,15 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
 
         let absorb: (String) -> Void = { [weak self] incoming in
             guard let self else { return }
-            chunkMerged = Self.mergeGrowingTranscript(chunkMerged, incoming)
+            // Each partial result from SFSpeechURLRecognitionRequest is a full
+            // revision of the entire chunk's transcript so far — Apple revises
+            // earlier words as more audio context arrives (e.g. "Cernay" →
+            // "surname"). The incoming partial is neither a prefix-extension
+            // nor a substring of the previous one, so mergeGrowingTranscript
+            // would concatenate them, producing duplicated garbled output like
+            // "One my name is Nagesh to my Cernay One my name is Nagesh to my
+            // surname is Bhool …". Replace instead of merge within a chunk.
+            chunkMerged = incoming
             self.publishPartial(Self.mergeGrowingTranscript(priorAccumulated, chunkMerged))
         }
 

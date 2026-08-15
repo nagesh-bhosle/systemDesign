@@ -14,5 +14,5 @@ public final class GeoUtils {
                 + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
                 * Math.sin(dLon / 2) * Math.sin(dLon / 2);
         return 2 * EARTH_MILES * Math.asin(Math.min(1.0, Math.sqrt(a)));
-    }
+    } 
 }
