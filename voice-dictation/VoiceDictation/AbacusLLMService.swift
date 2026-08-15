@@ -192,7 +192,14 @@ final class AbacusLLMService {
                 if !isRetry, self?.isTransientError(error) == true {
                     self?.logger.info("Retrying LLM request after transient error...")
                     DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) {
-                        self?.performRequest(request: request, isRetry: true, completion: completion)
+                        // Bail out if cancel() was called during the retry delay.
+                        guard let self else { return }
+                        let shouldRetry: Bool = self.taskQueue.sync { self.currentDataTask != nil }
+                        guard shouldRetry else {
+                            completion(.failure(AbacusLLMError.requestCancelled))
+                            return
+                        }
+                        self.performRequest(request: request, isRetry: true, completion: completion)
                     }
                     return
                 }

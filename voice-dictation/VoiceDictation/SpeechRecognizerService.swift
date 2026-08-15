@@ -67,6 +67,7 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
 
     var onPartialResult: ((String) -> Void)?
     var onAudioLevel: ((Float) -> Void)?
+    var onChunkProgress: ((Int, Int) -> Void)?
 
     init(localeIdentifier: String = "en-US") {
         self.localeIdentifier = localeIdentifier
@@ -324,6 +325,7 @@ final class SpeechRecognizerService: NSObject, SFSpeechRecognizerDelegate {
             let next = Self.mergeGrowingTranscript(accumulated, chunkText)
             self.publishPartial(next)
             self.logger.info("Chunk \(index + 1)/\(chunks.count) joined to \(next.count, privacy: .public) chars")
+            self.onChunkProgress?(index + 1, chunks.count)
             self.transcribeChunks(
                 chunks,
                 index: index + 1,

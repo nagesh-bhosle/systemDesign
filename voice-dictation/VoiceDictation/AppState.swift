@@ -74,6 +74,7 @@ final class AppState: ObservableObject {
     @Published var selectedInputUID: String = UserDefaults.standard.string(forKey: UserDefaultsKey.preferredAudioInputUID) ?? ""
     @Published var isMicTestRunning: Bool = false
     @Published var micTestLevel: Double = 0
+    @Published var chunkProgress: String? = nil
 
     static var shared: AppState?
 
@@ -442,6 +443,7 @@ final class AppState: ObservableObject {
         rawTranscript = ""
         transcriptionProcessed = false
         audioLevel = 0
+        chunkProgress = nil
 
         TextInserter.shared.captureInsertionTarget()
 
@@ -481,6 +483,12 @@ final class AppState: ObservableObject {
                         if text.count >= self.liveTranscript.count {
                             self.liveTranscript = text
                         }
+                    }
+                }
+
+                self.speechRecognizer.onChunkProgress = { current, total in
+                    Task { @MainActor in
+                        self.chunkProgress = total > 1 ? "Transcribing chunk \(current)/\(total)…" : nil
                     }
                 }
 
@@ -672,6 +680,7 @@ final class AppState: ObservableObject {
         stopRecordingTimer()
         liveTranscript = ""
         audioLevel = 0
+        chunkProgress = nil
         clearMessages()
         if let message {
             setStatusMessage(message)
@@ -687,9 +696,7 @@ final class AppState: ObservableObject {
     }
 
     private func hideFloatingWindow() {
-        if showFloatingWindow {
-            // Keep visible if user wants floating bar
-        }
+        FloatingWindowController.shared.hideWindow()
     }
 
     private func saveToHistory(text: String) {
@@ -717,12 +724,15 @@ final class AppState: ObservableObject {
 
     // MARK: - Recording timer
 
+    private static let maxRecordingSeconds: Int = 300
+
     private func startRecordingTimer() {
         recordingStartedAt = Date()
         recordingDuration = "0:00"
         recordingTimerTask?.cancel()
         recordingTimerTask = Task { @MainActor in
             var warnedSilence = false
+            var warnedAutoStop = false
             while !Task.isCancelled, self.status == .recording {
                 if let started = self.recordingStartedAt {
                     let elapsed = Int(Date().timeIntervalSince(started))
@@ -732,6 +742,15 @@ final class AppState: ObservableObject {
                     if !warnedSilence, elapsed >= 2, self.audioLevel < 0.03 {
                         warnedSilence = true
                         self.setStatusMessage("No mic signal. Keep the headset connected and check System Settings → Sound → Input.")
+                    }
+                    if !warnedAutoStop, elapsed >= Self.maxRecordingSeconds - 10 {
+                        warnedAutoStop = true
+                        self.setStatusMessage("Auto-stopping in 10 seconds…")
+                    }
+                    if elapsed >= Self.maxRecordingSeconds {
+                        self.logger.info("Auto-stopping recording at 5-minute limit")
+                        self.stopRecording()
+                        return
                     }
                 }
                 try? await Task.sleep(nanoseconds: 1_000_000_000)

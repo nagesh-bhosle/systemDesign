@@ -21,6 +21,8 @@ enum FocusedFieldInspector {
         )
         guard focusStatus == .success, let focusedObject else { return false }
 
+        // AXUIElement is a typealias for CFTypeRef; the force cast is safe and
+        // the compiler requires it for toll-free-bridged Core Foundation types.
         let element = focusedObject as! AXUIElement
         var roleObject: CFTypeRef?
         let roleStatus = AXUIElementCopyAttributeValue(

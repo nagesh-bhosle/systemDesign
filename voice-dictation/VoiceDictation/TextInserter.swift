@@ -175,6 +175,8 @@ final class TextInserter {
             &focused
         )
         guard status == .success, let focused else { return nil }
+        // AXUIElement is a typealias for CFTypeRef; the force cast is safe and
+        // the compiler requires it for toll-free-bridged Core Foundation types.
         return (focused as! AXUIElement)
     }
 

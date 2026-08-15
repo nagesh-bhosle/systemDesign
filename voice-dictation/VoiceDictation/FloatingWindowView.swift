@@ -116,10 +116,17 @@ struct FloatingWindowView: View {
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else if appState.status == .transcribing {
-            Text("Transcribing after you stop…")
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if let progress = appState.chunkProgress {
+                Text(progress)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text("Transcribing after you stop…")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         } else {
             Text("Voice Dictation")
                 .font(.system(size: 11))
