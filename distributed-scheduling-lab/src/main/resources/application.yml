@@ -1,0 +1,32 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/lab
+    username: lab
+    password: lab
+  jpa:
+    hibernate:
+      ddl-auto: none          # schema.sql is authoritative
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  sql:
+    init:
+      mode: always            # executes schema.sql at startup
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: lab
+    password: lab
+
+lab:
+  mode: coordinated           # naive | coordinated
+  batch-size: 5
+  scheduler-poll-ms: 3000
+  lease-seconds: 30
+  redis-lock-ttl-ms: 10000
+  processing-delay-min-ms: 500
+  processing-delay-max-ms: 1500
+  slow-message-id:            # optional: id that sleeps 40s (Script D)
