@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Distributed Scheduling Lab</title>
+<style>
+  :root {
+    --bg: #0d1220;
+    --panel: #151d30;
+    --panel-2: #1b2440;
+    --border: #263154;
+    --text: #e2e8f0;
+    --muted: #8b98b8;
+    --blue: #3b82f6;
+    --amber: #f59e0b;
+    --red: #ef4444;
+    --orange: #f97316;
+    --green: #22c55e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px; padding: 16px;
+  }
+  header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+  h1 { font-size: 20px; font-weight: 700; letter-spacing: .3px; }
+  .mode-badge {
+    font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+    padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted);
+  }
+  .mode-badge.naive { color: var(--red); border-color: var(--red); }
+  .mode-badge.coordinated { color: var(--green); border-color: var(--green); }
+  .conn { font-size: 12px; color: var(--muted); margin-left: auto; }
+  .conn .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--red); margin-right: 5px; }
+  .conn.open .dot { background: var(--green); animation: pulse 2s infinite; }
+
+  /* stats bar */
+  .stats {
+    display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px;
+  }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 8px 14px; min-width: 130px;
+  }
+  .stat .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .stat .value { font-size: 18px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .stat .sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .stat.duplicates { min-width: 170px; }
+  .stat.duplicates .value { font-size: 24px; }
+  .stat.duplicates.bad { border-color: var(--red); background: rgba(239,68,68,.12); }
+  .stat.duplicates.bad .value { color: var(--red); }
+  .sub .i { color: var(--blue); font-weight: 600; }
+  .sub .e { color: var(--amber); font-weight: 600; }
+
+  /* controls */
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  button {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+    transition: transform .05s ease, border-color .15s ease;
+  }
+  button:hover { border-color: #3d4f8a; }
+  button:active { transform: scale(.97); }
+  button.blue { border-color: var(--blue); color: #9ec3ff; }
+  button.amber { border-color: var(--amber); color: #fbc667; }
+  button.red { border-color: var(--red); color: #fca5a5; }
+  button.green { border-color: var(--green); color: #86efac; }
+
+  /* layout */
+  .layout { display: grid; grid-template-columns: 1fr 360px; gap: 14px; align-items: start; }
+  @media (max-width: 1000px) { .layout { grid-template-columns: 1fr; } }
+
+  /* pipeline */
+  .pipeline { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .column {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    min-height: 320px; display: flex; flex-direction: column;
+  }
+  .column h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted);
+    padding: 10px 12px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .column h2 .cnt { color: var(--text); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .chips { padding: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; flex: 1; overflow-y: auto; max-height: 420px; }
+  .chip {
+    font-size: 12px; font-weight: 600; padding: 4px 9px; border-radius: 999px;
+    border: 1px solid transparent; font-variant-numeric: tabular-nums;
+    animation: pop .18s ease;
+  }
+  .chip.intraday { background: rgba(59,130,246,.16); border-color: rgba(59,130,246,.55); color: #9ec3ff; }
+  .chip.eod { background: rgba(245,158,11,.14); border-color: rgba(245,158,11,.55); color: #fbc667; }
+  .chip.duplicate { background: rgba(239,68,68,.2); border-color: var(--red); color: #fca5a5; animation: flash 1s ease 3; }
+  .chip .by { font-weight: 400; opacity: .65; font-size: 10px; margin-left: 4px; }
+  @keyframes pop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  @keyframes flash { 0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); } 50% { box-shadow: 0 0 12px 3px rgba(239,68,68,.8); } }
+
+  /* instances */
+  .instances { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+  .instance {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 10px 12px; display: flex; align-items: center; gap: 10px;
+  }
+  .instance.dead { opacity: .55; border-color: var(--red); background: rgba(239,68,68,.07); }
+  .instance .heart {
+    width: 10px; height: 10px; border-radius: 50%; background: var(--green);
+    animation: pulse 1.6s infinite; flex-shrink: 0;
+  }
+  .instance.dead .heart { background: var(--red); animation: none; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  .instance .info { flex: 1; min-width: 0; }
+  .instance .name { font-weight: 700; font-size: 13px; }
+  .instance .work { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .instance .state { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+  .instance .state.alive { color: var(--green); }
+  .instance .state.dead { color: var(--red); }
+
+  /* event log */
+  .log-panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    display: flex; flex-direction: column; min-height: 200px;
+  }
+  .log-panel h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted);
+    padding: 10px 12px; border-bottom: 1px solid var(--border);
+  }
+  #log { padding: 8px 12px; overflow-y: auto; max-height: 380px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .log-line { padding: 3px 0; border-bottom: 1px dashed rgba(38,49,84,.5); display: flex; gap: 8px; }
+  .log-line .t { color: var(--muted); flex-shrink: 0; }
+  .log-line .k { font-weight: 700; flex-shrink: 0; min-width: 150px; }
+  .log-line .d { color: var(--muted); }
+  .k.RECEIVED { color: #93a5c8; }
+  .k.CLAIMED { color: var(--blue); }
+  .k.COMPLETED { color: var(--green); }
+  .k.LATE_WRITE_REJECTED { color: var(--red); }
+  .k.REQUEUED { color: var(--orange); }
+  .k.INSTANCE_KILLED { color: var(--red); }
+  .k.INSTANCE_REVIVED { color: var(--green); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Distributed Scheduling Lab</h1>
+  <span class="mode-badge" id="modeBadge">…</span>
+  <span class="conn" id="conn"><span class="dot"></span><span id="connText">connecting…</span></span>
+</header>
+
+<div class="stats">
+  <div class="stat"><div class="label">New</div><div class="value" id="stNew">0</div><div class="sub"><span class="i">I <span id="newI">0</span></span> · <span class="e">E <span id="newE">0</span></span></div></div>
+  <div class="stat"><div class="label">Processing</div><div class="value" id="stProc">0</div><div class="sub"><span class="i">I <span id="procI">0</span></span> · <span class="e">E <span id="procE">0</span></span></div></div>
+  <div class="stat"><div class="label">Done</div><div class="value" id="stDone">0</div><div class="sub"><span class="i">I <span id="doneI">0</span></span> · <span class="e">E <span id="doneE">0</span></span></div></div>
+  <div class="stat duplicates" id="dupStat"><div class="label">Duplicates (processed_count &gt; 1)</div><div class="value" id="stDup">0</div><div class="sub">must stay 0 in coordinated mode</div></div>
+</div>
+
+<div class="controls">
+  <button class="blue" onclick="produce('INTRADAY', 50)">Produce 50 INTRADAY</button>
+  <button class="amber" onclick="produce('EOD', 20)">Produce 20 EOD</button>
+  <button class="red" onclick="kill('scheduler-2')">Kill scheduler-2</button>
+  <button class="green" onclick="revive('scheduler-2')">Revive scheduler-2</button>
+  <button onclick="reset()">Reset</button>
+</div>
+
+<div class="layout">
+  <div class="pipeline">
+    <div class="column"><h2>New <span class="cnt" id="cntNew">0</span></h2><div class="chips" id="colNEW"></div></div>
+    <div class="column"><h2>Processing <span class="cnt" id="cntPROCESSING">0</span></h2><div class="chips" id="colPROCESSING"></div></div>
+    <div class="column"><h2>Done <span class="cnt" id="cntDONE">0</span></h2><div class="chips" id="colDONE"></div></div>
+  </div>
+  <div>
+    <div class="instances" id="instances"></div>
+    <div class="log-panel">
+      <h2>Event log</h2>
+      <div id="log"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+const MAX_CHIPS_PER_COL = 60;
+const MAX_LOG_LINES = 200;
+
+const chips = new Map();   // messageId -> {el, state, type, doneCount}
+const columns = { NEW: document.getElementById("colNEW"),
+                  PROCESSING: document.getElementById("colPROCESSING"),
+                  DONE: document.getElementById("colDONE") };
+const columnCounts = { NEW: document.getElementById("cntNew"),
+                       PROCESSING: document.getElementById("cntPROCESSING"),
+                       DONE: document.getElementById("cntDONE") };
+
+/* ---------- helpers ---------- */
+
+function ts() {
+  return new Date().toLocaleTimeString("en-GB", { hour12: false });
+}
+
+function log(kind, detail) {
+  const logEl = document.getElementById("log");
+  const line = document.createElement("div");
+  line.className = "log-line";
+  line.innerHTML =
+    '<span class="t">' + ts() + '</span>' +
+    '<span class="k ' + kind + '">' + kind + '</span>' +
+    '<span class="d">' + detail + "</span>";
+  logEl.prepend(line);
+  while (logEl.childElementCount > MAX_LOG_LINES) logEl.lastChild.remove();
+}
+
+function typeClass(type) { return type === "INTRADAY" ? "intraday" : "eod"; }
+
+function trimColumn(colEl) {
+  while (colEl.childElementCount > MAX_CHIPS_PER_COL) colEl.lastChild.remove();
+}
+
+function makeChip(id, type) {
+  const el = document.createElement("span");
+  el.className = "chip " + typeClass(type);
+  el.textContent = "#" + id;
+  return el;
+}
+
+function addChip(id, type) {
+  if (chips.has(id)) return;
+  const el = makeChip(id, type);
+  columns.NEW.appendChild(el);
+  trimColumn(columns.NEW);
+  chips.set(id, { el, state: "NEW", type, doneCount: 0, claimedBy: null });
+  refreshColumnCounts();
+}
+
+function moveChip(id, state, instance, type) {
+  const chip = chips.get(id);
+  if (!chip) {
+    // event for a chip we no longer track (trimmed) — recreate in target column
+    const fallbackType = type || "INTRADAY";
+    const el = makeChip(id, fallbackType);
+    columns[state].appendChild(el);
+    trimColumn(columns[state]);
+    chips.set(id, { el, state, type: fallbackType, doneCount: state === "DONE" ? 1 : 0, claimedBy: instance });
+    refreshColumnCounts();
+    return;
+  }
+  if (state === "DONE") {
+    chip.doneCount += 1;
+    if (chip.doneCount > 1) {
+      // duplicate completion — the naive-mode failure mode, flash it red
+      chip.el.classList.add("duplicate");
+      chip.el.textContent = "#" + id + " ×" + chip.doneCount;
+      log("COMPLETED", "message #" + id + " completed AGAIN by " + (instance || "?") +
+          " — DUPLICATE (processed_count=" + chip.doneCount + ")");
+    }
+  }
+  if (instance && state === "PROCESSING") {
+    chip.claimedBy = instance;
+    chip.el.innerHTML = "#" + id + '<span class="by">' + instance + "</span>";
+  }
+  if (chip.state !== state) {
+    chip.state = state;
+    columns[state].appendChild(chip.el);
+    trimColumn(columns[state]);
+  }
+  refreshColumnCounts();
+}
+
+function refreshColumnCounts() {
+  for (const state of ["NEW", "PROCESSING", "DONE"]) {
+    columnCounts[state].textContent = columns[state].childElementCount;
+  }
+}
+
+/* ---------- SSE ---------- */
+
+const es = new EventSource("/api/stream");
+const conn = document.getElementById("conn");
+
+es.onopen = () => {
+  conn.classList.add("open");
+  document.getElementById("connText").textContent = "live";
+};
+es.onerror = () => {
+  conn.classList.remove("open");
+  document.getElementById("connText").textContent = "reconnecting…";
+};
+
+es.addEventListener("RECEIVED", e => {
+  const ev = JSON.parse(e.data);
+  addChip(ev.messageId, ev.messageType);
+  log("RECEIVED", "message #" + ev.messageId + " (" + ev.messageType + ") persisted as NEW");
+});
+
+es.addEventListener("CLAIMED", e => {
+  const ev = JSON.parse(e.data);
+  moveChip(ev.messageId, "PROCESSING", ev.instance, ev.messageType);
+  log("CLAIMED", "message #" + ev.messageId + " (" + ev.messageType + ") claimed by " + ev.instance);
+});
+
+es.addEventListener("COMPLETED", e => {
+  const ev = JSON.parse(e.data);
+  const chip = chips.get(ev.messageId);
+  if (!(chip && chip.doneCount >= 1)) {
+    log("COMPLETED", "message #" + ev.messageId + " completed by " + ev.instance);
+  } // duplicate completions are logged inside moveChip
+  moveChip(ev.messageId, "DONE", ev.instance, ev.messageType);
+});
+
+es.addEventListener("LATE_WRITE_REJECTED", e => {
+  const ev = JSON.parse(e.data);
+  log("LATE_WRITE_REJECTED", "message #" + ev.messageId + " late completion by " + ev.instance +
+      " REJECTED (token mismatch / lease lost) — state stays correct");
+});
+
+es.addEventListener("REQUEUED", e => {
+  const ev = JSON.parse(e.data);
+  const count = ev.count != null ? ev.count : "?";
+  log("REQUEUED", "lease expired — " + count + " stale message(s) requeued to NEW for survivors");
+});
+
+es.addEventListener("INSTANCE_KILLED", e => {
+  const ev = JSON.parse(e.data);
+  log("INSTANCE_KILLED", ev.instance + " killed — in-flight work abandoned, lease will expire");
+  renderInstances([{ name: ev.instance, alive: false, currentWork: "idle", single: true }]);
+});
+
+es.addEventListener("INSTANCE_REVIVED", e => {
+  const ev = JSON.parse(e.data);
+  log("INSTANCE_REVIVED", ev.instance + " revived — rejoining the poll cycle");
+  renderInstances([{ name: ev.instance, alive: true, currentWork: "idle", single: true }]);
+});
+
+/* ---------- stats polling ---------- */
+
+async function refreshStats() {
+  try {
+    const res = await fetch("/api/stats");
+    const s = await res.json();
+    document.getElementById("newI").textContent = s.NEW.INTRADAY;
+    document.getElementById("newE").textContent = s.NEW.EOD;
+    document.getElementById("procI").textContent = s.PROCESSING.INTRADAY;
+    document.getElementById("procE").textContent = s.PROCESSING.EOD;
+    document.getElementById("doneI").textContent = s.DONE.INTRADAY;
+    document.getElementById("doneE").textContent = s.DONE.EOD;
+    document.getElementById("stNew").textContent = s.NEW.INTRADAY + s.NEW.EOD;
+    document.getElementById("stProc").textContent = s.PROCESSING.INTRADAY + s.PROCESSING.EOD;
+    document.getElementById("stDone").textContent = s.DONE.INTRADAY + s.DONE.EOD;
+    const dup = s.duplicates;
+    const dupEl = document.getElementById("stDup");
+    dupEl.textContent = dup;
+    document.getElementById("dupStat").classList.toggle("bad", dup > 0);
+    const badge = document.getElementById("modeBadge");
+    if (s.mode) {
+      badge.textContent = s.mode;
+      badge.className = "mode-badge " + s.mode;
+    }
+    renderInstances(s.instances);
+  } catch (_) { /* backend restarting */ }
+}
+
+const instanceEls = new Map();
+
+function renderInstances(instances) {
+  const container = document.getElementById("instances");
+  for (const inst of instances) {
+    if (instanceEls.has(inst.name)) continue;
+    const el = document.createElement("div");
+    el.className = "instance";
+    el.innerHTML =
+      '<span class="heart"></span>' +
+      '<div class="info"><div class="name">' + inst.name + '</div>' +
+      '<div class="work">idle</div></div>' +
+      '<span class="state alive">alive</span>';
+    container.appendChild(el);
+    instanceEls.set(inst.name, el);
+  }
+  for (const inst of instances) {
+    const el = instanceEls.get(inst.name);
+    if (!el) continue;
+    el.classList.toggle("dead", !inst.alive);
+    el.querySelector(".work").textContent = inst.currentWork || "idle";
+    const stateEl = el.querySelector(".state");
+    stateEl.textContent = inst.alive ? "alive" : "dead";
+    stateEl.className = "state " + (inst.alive ? "alive" : "dead");
+  }
+}
+
+setInterval(refreshStats, 1000);
+refreshStats();
+
+/* ---------- controls ---------- */
+
+async function post(url) {
+  try {
+    const res = await fetch(url, { method: "POST" });
+    if (!res.ok) console.warn(url, "->", res.status);
+  } catch (err) { console.warn(err); }
+}
+
+function produce(type, count) {
+  post("/api/produce?type=" + type + "&count=" + count)
+    .then(() => log("RECEIVED", "produced " + count + " " + type + " message(s) to RabbitMQ"));
+}
+
+function kill(name)  { post("/api/kill/" + name); }
+function revive(name) { post("/api/revive/" + name); }
+
+async function reset() {
+  await post("/api/reset");
+  chips.clear();
+  for (const state of ["NEW", "PROCESSING", "DONE"]) columns[state].innerHTML = "";
+  refreshColumnCounts();
+  document.getElementById("log").innerHTML = "";
+  log("RECEIVED", "reset — messages table truncated, dashboard state cleared");
+  refreshStats();
+}
+</script>
+</body>
+</html>
