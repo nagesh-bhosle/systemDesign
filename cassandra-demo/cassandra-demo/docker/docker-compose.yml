@@ -1,0 +1,54 @@
+version: '3.8'
+
+# Single-node Cassandra + the Spring Boot demo app.
+# A single node keeps the demo runnable on laptops (two nodes previously OOM-killed
+# on this machine). RF is 1 to match this topology.
+
+services:
+  cassandra:
+    image: cassandra:4.1
+    container_name: cassandra-node1
+    environment:
+      CASSANDRA_CLUSTER_NAME: "CassandraCluster"
+      CASSANDRA_DC: "datacenter1"
+      CASSANDRA_RACK: "rack1"
+      CASSANDRA_NUM_TOKENS: 256
+      # Keep the JVM heap small so the node fits in Docker Desktop's memory budget.
+      MAX_HEAP_SIZE: "512M"
+      HEAP_NEWSIZE: "100M"
+    ports:
+      - "9042:9042"
+    volumes:
+      # Deterministic schema + seed: applied once on first boot by the Docker entrypoint.
+      - ../src/main/resources/cql/schema.cql:/docker-entrypoint-initdb.d/schema.cql:ro
+      - ../src/main/resources/cql/seed-data.cql:/docker-entrypoint-initdb.d/seed-data.cql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'SELECT release_version FROM system.local'"]
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
+    networks:
+      - cassandra-net
+
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: cassandra-demo-app
+    environment:
+      CASSANDRA_CONTACT_POINTS: "cassandra"
+      CASSANDRA_PORT: "9042"
+      CASSANDRA_KEYSPACE: "cassandra_demo"
+      CASSANDRA_LOCAL_DATACENTER: "datacenter1"
+    ports:
+      - "8080:8080"
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    networks:
+      - cassandra-net
+
+networks:
+  cassandra-net:
+    driver: bridge

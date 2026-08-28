@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Versioned Writes · Cassandra Demo</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" th:href="@{/}">
+                <span class="brand-badge">C</span>
+                <span>Cassandra <b>Demo</b></span>
+            </a>
+            <nav class="nav">
+                <a th:href="@{/pages/partitioning}">Partitioning</a>
+                <a th:href="@{/pages/clustering}">Clustering</a>
+                <a th:href="@{/pages/cluster-topology}">Topology</a>
+                <a th:href="@{/pages/consistency}">Consistency</a>
+                <a class="active" th:href="@{/pages/versioned-writes}">Versioned Writes</a>
+                <a th:href="@{/pages/snowflake}">Snowflake IDs</a>
+                <a th:href="@{/pages/sql-vs-cql}">SQL vs CQL</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="card">
+            <h1>Versioned Writes</h1>
+            <p>
+                Writes go through <code>/write-support</code>. Every save is an upsert -
+                the latest write wins per primary key, and older column versions remain
+                until compaction.
+            </p>
+        </section>
+
+        <section class="grid two-col">
+            <div class="card">
+                <h3>Add a reading</h3>
+                <div class="form-col">
+                    <input id="ws-id" type="text" placeholder="id (e.g. reading-1)">
+                    <input id="ws-sensor" type="text" placeholder="sensor id (e.g. sensor-42)">
+                    <input id="ws-temp" type="number" step="0.1" placeholder="temperature (°C)">
+                    <input id="ws-hum" type="number" step="0.1" placeholder="humidity (%)">
+                    <button class="btn btn-primary" id="ws-save">Save reading</button>
+                </div>
+                <pre id="ws-out" class="code" hidden></pre>
+            </div>
+            <div class="card">
+                <h3>All readings</h3>
+                <div id="ws-rows" class="rows">Loading…</div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <p>Cassandra Demo · Spring Boot + Thymeleaf + Docker</p>
+    </footer>
+
+    <script th:src="@{/js/main.js}"></script>
+</body>
+</html>

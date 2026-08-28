@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Consistency · Cassandra Demo</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" th:href="@{/}">
+                <span class="brand-badge">C</span>
+                <span>Cassandra <b>Demo</b></span>
+            </a>
+            <nav class="nav">
+                <a th:href="@{/pages/partitioning}">Partitioning</a>
+                <a th:href="@{/pages/clustering}">Clustering</a>
+                <a th:href="@{/pages/cluster-topology}">Topology</a>
+                <a class="active" th:href="@{/pages/consistency}">Consistency</a>
+                <a th:href="@{/pages/versioned-writes}">Versioned Writes</a>
+                <a th:href="@{/pages/snowflake}">Snowflake IDs</a>
+                <a th:href="@{/pages/sql-vs-cql}">SQL vs CQL</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="card">
+            <h1>Eventual Consistency</h1>
+            <p>
+                Cassandra lets you pick the consistency level per operation. Higher levels
+                (QUORUM, ALL) give stronger guarantees but more latency; lower levels (ONE)
+                are faster but may read stale data until replicas converge.
+            </p>
+        </section>
+
+        <section class="grid two-col">
+            <div class="card">
+                <h3>Levels at a glance</h3>
+                <table class="table">
+                    <tr><th>Level</th><th>Reads / writes acknowledged</th><th>Tradeoff</th></tr>
+                    <tr><td>ONE</td><td>1 replica</td><td>Fastest, may be stale</td></tr>
+                    <tr><td>QUORUM</td><td>majority</td><td>Balanced (recommended)</td></tr>
+                    <tr><td>ALL</td><td>every replica</td><td>Strongest, slowest</td></tr>
+                </table>
+            </div>
+            <div class="card">
+                <h3>Run the demo</h3>
+                <p>Simulate a write + read at different levels:</p>
+                <button class="btn btn-primary" id="ec-run">Run eventual-consistency demo</button>
+                <pre id="ec-out" class="code" hidden></pre>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <p>Cassandra Demo · Spring Boot + Thymeleaf + Docker</p>
+    </footer>
+
+    <script th:src="@{/js/main.js}"></script>
+</body>
+</html>

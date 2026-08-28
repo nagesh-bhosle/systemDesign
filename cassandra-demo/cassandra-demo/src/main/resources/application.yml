@@ -1,0 +1,26 @@
+spring:
+  application:
+    name: cassandra-demo
+  data:
+    cassandra:
+      # All infra values are overridable via environment variables so the same
+      # build runs locally (localhost) and inside Docker (service name).
+      contact-points: ${CASSANDRA_CONTACT_POINTS:localhost}
+      port: ${CASSANDRA_PORT:9042}
+      keyspace-name: ${CASSANDRA_KEYSPACE:cassandra_demo}
+      local-datacenter: ${CASSANDRA_LOCAL_DATACENTER:datacenter1}
+      schema-action: create_if_not_exists
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    org.springframework.data.cassandra: INFO
+    com.datastax.driver.core: WARN

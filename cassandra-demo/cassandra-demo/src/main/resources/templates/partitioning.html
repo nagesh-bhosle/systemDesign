@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Partitioning · Cassandra Demo</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" th:href="@{/}">
+                <span class="brand-badge">C</span>
+                <span>Cassandra <b>Demo</b></span>
+            </a>
+            <nav class="nav">
+                <a class="active" th:href="@{/pages/partitioning}">Partitioning</a>
+                <a th:href="@{/pages/clustering}">Clustering</a>
+                <a th:href="@{/pages/cluster-topology}">Topology</a>
+                <a th:href="@{/pages/consistency}">Consistency</a>
+                <a th:href="@{/pages/versioned-writes}">Versioned Writes</a>
+                <a th:href="@{/pages/snowflake}">Snowflake IDs</a>
+                <a th:href="@{/pages/sql-vs-cql}">SQL vs CQL</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="card">
+            <h1>Partitioning</h1>
+            <p>
+                Cassandra distributes data by hashing the <b>partition key</b> with Murmur3.
+                All rows sharing a partition key live together on the same node(s) - that is
+                why queries should be designed around one partition.
+            </p>
+        </section>
+
+        <section class="grid two-col">
+            <div class="card">
+                <h3>Try it</h3>
+                <p>Ask for a key and see how Cassandra would place it.</p>
+                <div class="form-row">
+                    <input id="pk-input" type="text" placeholder="e.g. sensor-42">
+                    <button class="btn btn-primary" id="pk-go">Explain</button>
+                </div>
+                <pre id="pk-out" class="code" hidden></pre>
+            </div>
+            <div class="card">
+                <h3>Live data</h3>
+                <p>All sensor readings currently stored:</p>
+                <div id="pk-rows" class="rows">Loading…</div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <p>Cassandra Demo · Spring Boot + Thymeleaf + Docker</p>
+    </footer>
+
+    <script th:src="@{/js/main.js}"></script>
+</body>
+</html>

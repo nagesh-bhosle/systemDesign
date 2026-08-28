@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Snowflake IDs · Cassandra Demo</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" th:href="@{/}">
+                <span class="brand-badge">C</span>
+                <span>Cassandra <b>Demo</b></span>
+            </a>
+            <nav class="nav">
+                <a th:href="@{/pages/partitioning}">Partitioning</a>
+                <a th:href="@{/pages/clustering}">Clustering</a>
+                <a th:href="@{/pages/cluster-topology}">Topology</a>
+                <a th:href="@{/pages/consistency}">Consistency</a>
+                <a th:href="@{/pages/versioned-writes}">Versioned Writes</a>
+                <a class="active" th:href="@{/pages/snowflake}">Snowflake IDs</a>
+                <a th:href="@{/pages/sql-vs-cql}">SQL vs CQL</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="card">
+            <h1>Snowflake IDs</h1>
+            <p>
+                Cassandra has no auto-increment. A common pattern is time-ordered 64-bit IDs:
+                <code>(timestamp - epoch) &lt;&lt; 12 | sequence</code>. Generate some below -
+                notice they sort chronologically.
+            </p>
+        </section>
+
+        <section class="grid two-col">
+            <div class="card">
+                <h3>Generate</h3>
+                <div class="form-row">
+                    <input id="sf-count" type="number" value="5" min="1" max="50">
+                    <button class="btn btn-primary" id="sf-go">Generate batch</button>
+                </div>
+                <pre id="sf-out" class="code" hidden></pre>
+            </div>
+            <div class="card">
+                <h3>Last generated</h3>
+                <div id="sf-list" class="rows">None yet - generate a batch.</div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <p>Cassandra Demo · Spring Boot + Thymeleaf + Docker</p>
+    </footer>
+
+    <script th:src="@{/js/main.js}"></script>
+</body>
+</html>
