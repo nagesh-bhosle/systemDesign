@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Interview Face Coach — Live Expression Feedback</title>
+<meta name="description" content="On-device facial coaching for interviews — stuck / confident / thinking detection with session report." />
+<link rel="preconnect" href="https://cdn.jsdelivr.net" />
+<link rel="stylesheet" href="css/style.css" />
+<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">◉</span>
+    <div>
+      <h1>Interview Face Coach</h1>
+      <p>On-device • Private • No video leaves your browser</p>
+    </div>
+  </div>
+  <div class="top-actions">
+    <span class="pill" id="modelStatus">Models: not loaded</span>
+    <span class="pill" id="cameraStatus">Camera: off</span>
+  </div>
+</header>
+
+<main class="layout">
+  <!-- LEFT: video + controls -->
+  <section class="video-card">
+    <div class="video-wrap">
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="overlay"></canvas>
+      <div id="noFaceHint" class="hint hidden">Center your face • Improve lighting</div>
+      <div id="stateBadge" class="badge neutral">NEUTRAL</div>
+    </div>
+
+    <div class="controls">
+      <button id="btnCamera" class="btn primary">Enable Camera</button>
+      <button id="btnCalibrate" class="btn" disabled>Calibrate (3s neutral)</button>
+      <button id="btnStart" class="btn success" disabled>Start Session</button>
+      <button id="btnEnd" class="btn danger" disabled>End & Report</button>
+      <button id="btnReset" class="btn ghost">Reset</button>
+    </div>
+
+    <div class="status-grid">
+      <div class="stat"><label>State</label><strong id="statState">—</strong></div>
+      <div class="stat"><label>Score</label><strong id="statScore">—</strong></div>
+      <div class="stat"><label>Eye contact</label><strong id="statEyeContact">—</strong></div>
+      <div class="stat"><label>FPS</label><strong id="statFps">—</strong></div>
+    </div>
+
+    <div class="calib-bar">
+      <div class="calib-label">Calibration</div>
+      <div class="progress"><div id="calibProgress"></div></div>
+      <span id="calibText">Not calibrated</span>
+    </div>
+  </section>
+
+  <!-- RIGHT: live signals + timeline -->
+  <section class="signals-card">
+    <h2>Live Signals</h2>
+
+    <div id="emotionBars" class="emotion-bars"></div>
+
+    <div class="signals-grid">
+      <div class="sig"><span>Brow furrow</span><b id="sigBrow">—</b><div class="mini-bar"><i id="barBrow"></i></div></div>
+      <div class="sig"><span>Smile</span><b id="sigSmile">—</b><div class="mini-bar"><i id="barSmile"></i></div></div>
+      <div class="sig"><span>Eye openness</span><b id="sigEar">—</b><div class="mini-bar"><i id="barEar"></i></div></div>
+      <div class="sig"><span>Mouth tension</span><b id="sigMouth">—</b><div class="mini-bar"><i id="barMouth"></i></div></div>
+      <div class="sig"><span>Head yaw/pitch</span><b id="sigHead">—</b></div>
+      <div class="sig"><span>Top emotion</span><b id="sigTop">—</b></div>
+    </div>
+
+    <h2 style="margin-top:18px">Session Timeline</h2>
+    <div class="chart-wrap"><canvas id="timelineChart" height="140"></canvas></div>
+    <div class="legend">
+      <span><i class="dot confident"></i> Confident</span>
+      <span><i class="dot stuck"></i> Stuck</span>
+      <span><i class="dot thinking"></i> Thinking</span>
+      <span><i class="dot anxious"></i> Anxious</span>
+      <span><i class="dot neutral"></i> Neutral</span>
+    </div>
+
+    <div class="session-meta">
+      <span id="sessionTime">00:00</span>
+      <span id="sessionSamples">0 samples</span>
+      <span id="faceStatus">No face</span>
+    </div>
+
+    <details class="log-details">
+      <summary>Raw log (last 20)</summary>
+      <pre id="rawLog">—</pre>
+    </details>
+  </section>
+</main>
+
+<!-- Report -->
+<section id="report" class="report hidden">
+  <div class="report-head">
+    <h2>Session Report</h2>
+    <div>
+      <button id="btnDownloadJson" class="btn">Download JSON</button>
+      <button id="btnDownloadHtml" class="btn primary">Download Report HTML</button>
+      <button id="btnCloseReport" class="btn ghost">Close</button>
+    </div>
+  </div>
+  <div class="score-grid">
+    <div class="score-card">
+      <div class="score-ring"><span id="reportScore">—</span></div>
+      <div><strong id="reportVerdict">—</strong><p id="reportSummary">—</p></div>
+    </div>
+    <div class="breakdown">
+      <div><label>Confidence</label><div class="progress"><div id="barConf"></div></div><span id="valConf">—</span></div>
+      <div><label>Composure</label><div class="progress"><div id="barComp"></div></div><span id="valComp">—</span></div>
+      <div><label>Engagement</label><div class="progress"><div id="barEng"></div></div><span id="valEng">—</span></div>
+    </div>
+  </div>
+  <div class="report-grid">
+    <div>
+      <h3>Timeline breakdown</h3>
+      <canvas id="reportChart" height="120"></canvas>
+      <table class="table" id="reportTable"></table>
+    </div>
+    <div>
+      <h3>Coaching tips</h3>
+      <ul id="reportTips" class="tips"></ul>
+      <h3>What went well</h3>
+      <ul id="reportGood" class="tips good"></ul>
+    </div>
+  </div>
+  <p class="muted">Tip: run 3 sessions (easy / medium / hard question). Compare scores and stuck% to track progress.</p>
+</section>
+
+<footer class="footer">
+  <span>Privacy: video never leaves this tab. Models run via WebGL on-device. <a href="#" id="clearStorage">Clear stored sessions</a></span>
+  <span>Stack: face-api.js (TinyFaceDetector + 68 landmarks + ExpressionNet) • Chart.js • Vanilla JS</span>
+</footer>
+
+<div id="toast" class="toast hidden"></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

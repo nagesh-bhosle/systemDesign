@@ -1,0 +1,8 @@
+services:
+  app:
+    image: nginx:alpine
+    ports:
+      - "5173:80"
+    volumes:
+      - ./app:/usr/share/nginx/html:ro
+    restart: unless-stopped
