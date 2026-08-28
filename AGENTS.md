@@ -94,18 +94,20 @@ git push origin --delete feature/<topic>
 - ❌ Never force-push to `main`
 - ❌ Never skip the branch step, even for "small" changes
 - ❌ Never push to `main` without merging through the workflow
+- ❌ Never create a new project without `start.sh` and `stop.sh`
+- ❌ Never track third-party study material or copyrighted content (e.g. `*.pdf`,
+  `hello*` files) — keep them out of the repo entirely (see `.gitignore`)
+- ❌ Never reference or write the brand name "Hello Interview" anywhere in the repo,
+  including docs, notes, comments, and commit messages
+
+## Third-party content policy
+
+This is a **public** repository. Never commit, upload, or reference third-party study
+material, blog downloads, PDFs, or any copyrighted content — and never mention the
+brand name of the source. If a study document is used as reference, write original
+notes from it and cite only the general concepts, never the source brand.
 
 ## Exceptions
 
 - **Read-only tasks** (research, exploration, answering questions, running tests) do NOT require a branch
 - If the user explicitly says "just commit to main" or "skip the branch", follow their instruction
-
----
-
-## Hello Interview implementations
-
-When adding or extending a system-design **demo** from Hello Interview (or similar):
-
-1. Read [`.cursor/skills/hello-interview-system-design/SKILL.md`](.cursor/skills/hello-interview-system-design/SKILL.md).
-2. Default to the breakdown’s “great” path; expose other named alternatives as `application.yml` flags.
-3. Place code in `<problem>-demo/` with Docker, `./start.sh`, and a short original design note (`<Problem>.md`).

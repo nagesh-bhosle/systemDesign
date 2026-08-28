@@ -2,7 +2,7 @@
 
 A Spring Boot application that implements a **Dropbox-like file storage system** with chunked uploads, fingerprinting, deduplication, resumable uploads, file sharing, and real-time sync — all backed by Azure Blob Storage (Azurite for local dev) and H2 (in-memory DB for metadata).
 
-Based on the [Dropbox system design breakdown](https://www.hellointerview.com/learn/system-design/problem-breakdowns/dropbox).
+Based on the [Dropbox system design breakdown](https://en.wikipedia.org/wiki/Dropbox) and a standard system-design interview walkthrough of a cloud file-storage service.
 
 ---
 

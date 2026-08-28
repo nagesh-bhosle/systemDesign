@@ -5,3 +5,8 @@ jffi*.dll
 
 # Build output (also ignored at repo root)
 target/
+
+# Never track third-party study material / PDFs
+*.pdf
+CassandraDeepDive*
+hello*
