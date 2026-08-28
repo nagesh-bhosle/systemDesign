@@ -73,7 +73,10 @@
             <a href="#when-use">When to use ✅</a>
             <a href="#when-avoid">When to avoid ❌</a>
             <a href="#how">How it works</a>
+            <a href="#storage">Storage (LSM)</a>
+            <a href="#data-modeling">Data modeling</a>
             <a href="#vs-postgres">Cassandra vs Postgres</a>
+            <a href="#advanced">Advanced features</a>
             <a href="#blog">Blog summary</a>
         </nav>
 
@@ -113,12 +116,15 @@
                 <li><b>High availability / no downtime</b> — you can accept slightly stale reads
                     but <i>cannot</i> accept a down database; rolling upgrades, node loss should
                     not stop writes.</li>
+                <li><b>Availability &gt; consistency</b> — the CAP choice Cassandra fits (AP by default).</li>
+                <li><b>High write throughput</b> — LSM storage makes Cassandra an especially good fit
+                    for write-heavy systems.</li>
+                <li><b>Flexible / sparse schemas</b> — wide columns that vary per row.</li>
                 <li><b>Data is mostly keyed by a natural partition</b> — e.g. "give me all of
                     <code>user_id</code>'s events", "all readings for <code>sensor_id</code>".</li>
                 <li><b>Horizontal scale-out</b> — adding nodes = adding capacity linearly, with
                     automatic rebalancing (consistent hashing).</li>
-                <li><b>High throughput needs</b> — millions of writes/sec across a big cluster.</li>
-                <li><b>Schema flexibility</b> — sparse, evolving columns are okay.</li>
+                <li><b>A few clear access patterns</b> you can model tables around.</li>
             </ul>
             <blockquote>Sweet spot: <b>"Append-heavy, key-based access, always-on, scale-out."</b></blockquote>
         </section>
@@ -127,6 +133,8 @@
         <section class="card note-card" id="when-avoid">
             <h2>3 · When should you avoid it? <span class="pill-tag pill-avoid">AVOID</span></h2>
             <ul>
+                <li><b>Strict consistency required</b> — Cassandra is heavily biased toward
+                    availability, so strong-consistency systems fit poorly.</li>
                 <li><b>Ad-hoc / complex queries</b> — no JOINs, no GROUP BY over the whole table,
                     no arbitrary <code>WHERE</code> on non-key columns. You must model tables per
                     query pattern <i>upfront</i>.</li>
@@ -197,16 +205,121 @@
                     so <code>ORDER BY</code> is a <b>schema-time</b> decision, not query-time.</li>
                 <li>Queries must always filter by the partition key; range/order only along the
                     clustering columns.</li>
+                <li>Primary key types: <code>PRIMARY KEY (a)</code> · <code>PRIMARY KEY ((a), b)</code>
+                    (a = partition, b = cluster) · <code>PRIMARY KEY ((a, b), c)</code> (composite
+                    partition) · <code>PRIMARY KEY ((a), b, c)</code> (multi clustering). Same idea as
+                    DynamoDB's key design.</li>
             </ul>
 
-            <h3>e) The "Cassandra triangle" to control</h3>
-            <p>For every request you balance <b>consistency</b>, <b>correctness</b>, and
-            <b>uptime</b>. There's no one setting — you tune it per query.</p>
+            <h3>e) Query routing (leaderless / coordinator)</h3>
+            <ul>
+                <li><b>Any node can serve any query</b> — the client picks a node, that node becomes
+                    the <b>coordinator</b> and routes to the replicas that hold the data.</li>
+                <li>Nodes learn the full cluster layout via <b>gossip</b> (no central metadata server,
+                    no single point of failure).</li>
+            </ul>
+
+            <h3>f) Gossip &amp; fault tolerance</h3>
+            <ul>
+                <li><b>Gossip</b>: nodes periodically exchange cluster state (alive/dead, schema) with
+                    random peers, biased toward <b>seed nodes</b> (guaranteed "hotspots"). Generation +
+                    version numbers form a <b>vector clock</b> so stale gossip is ignored.</li>
+                <li><b>Failure detection</b>: <b>Phi Accrual Failure Detector</b> — a node "convicts" a
+                    peer that stops heartbeating and stops routing writes to it. Convicted nodes stay in
+                    the ring (no instant re-balance).</li>
+                <li><b>Hinted handoff</b>: if a write target is down, the coordinator stores a <b>hint</b>
+                    and replays it when the node returns — short-term protection against data loss.</li>
+            </ul>
+
+            <h3>g) Consistency levels &amp; the CAP trade-off</h3>
+            <ul>
+                <li>Per-request <b>ConsistencyLevel</b>: <code>ONE</code>, <code>QUORUM</code>,
+                    <code>ALL</code>, <code>LOCAL_QUORUM</code>, etc.</li>
+                <li><code>QUORUM</code> (majority = RF/2 + 1) on both read &amp; write guarantees the
+                    read sees the write (at least one node overlaps).</li>
+                <li>No ACID/transactions — only atomic, isolated <b>single-partition</b> writes
+                    (row-level in a partition). Eventual consistency is the norm.</li>
+                <li>For every request you tune the triangle: <b>consistency vs correctness vs uptime</b>.</li>
+            </ul>
         </section>
 
-        <!-- 5. VS POSTGRES -->
+        <!-- 5. STORAGE (LSM) -->
+        <section class="card note-card" id="storage">
+            <h2>5 · Storage model — why writes are so fast (LSM tree)</h2>
+            <p>
+                Cassandra uses a <b>Log-Structured Merge (LSM) tree</b> instead of a B-tree.
+                It optimizes for <b>write speed over read speed</b>: every create/update/delete is
+                basically an <b>append</b>. Deletes write a <b>tombstone</b>.
+            </p>
+            <ul>
+                <li><b>Commit Log</b> — write-ahead log for durability (writes survive a crash).</li>
+                <li><b>Memtable</b> — in-memory, sorted-by-primary-key structure holding recent writes.</li>
+                <li><b>SSTable</b> — immutable file on disk, produced when a Memtable is flushed
+                    (on size/time threshold).</li>
+            </ul>
+            <div class="mini-code">write → commit log → memtable → (flush) → SSTable → compaction</div>
+            <ul>
+                <li><b>Reads</b>: memtable first (latest), then <b>bloom filter</b> to pick candidate
+                    SSTables, read newest → oldest.</li>
+                <li><b>Compaction</b> merges SSTables into a consolidated set, removes tombstones/deleted
+                    rows.</li>
+                <li><b>SSTable index</b> maps keys → byte offsets for fast on-disk lookup.</li>
+            </ul>
+        </section>
+
+        <!-- 6. DATA MODELING -->
+        <section class="card note-card" id="data-modeling">
+            <h2>6 · Data modeling — query-driven, not entity-driven</h2>
+            <p>
+                Relational modeling is <b>entity-driven</b> (normalize, JOIN via FKs). Cassandra is
+                <b>query-driven</b>: no JOINs, no FKs, no flexible queries — so you model tables
+                around the <b>access patterns</b> and <b>denormalize</b> data across tables.
+            </p>
+            <h3>Decide per table</h3>
+            <ul>
+                <li><b>Partition key</b> — what data determines the partition.</li>
+                <li><b>Partition size</b> — can a partition grow unbounded? (Large partitions = slow.)</li>
+                <li><b>Clustering key</b> — how rows should be sorted.</li>
+                <li><b>Denormalization</b> — duplicate data into per-query tables.</li>
+            </ul>
+
+            <h3>Example: Discord messages</h3>
+            <div class="mini-code">-- v1: one partition per channel
+CREATE TABLE messages (
+    channel_id bigint, message_id bigint, author_id bigint, content text,
+    PRIMARY KEY (channel_id, message_id)
+) WITH CLUSTERING ORDER BY (message_id DESC);</div>
+            <ul>
+                <li><code>message_id</code> is a <b>Snowflake ID</b> — chronologically sortable, no
+                    collision (timestamp would collide).</li>
+                <li>Problem: busy channels → <b>huge partitions</b> that grow forever → slow.</li>
+                <li>Fix: add a <b>bucket</b> (10 days) to the partition key:</li>
+            </ul>
+            <div class="mini-code">PRIMARY KEY ((channel_id, bucket), message_id)   -- bounded partition size</div>
+
+            <h3>Example: Ticketmaster tickets</h3>
+            <div class="mini-code">-- v1: one partition per event
+PRIMARY KEY (event_id, seat_id)                 -- 10k+ seats → big partition
+
+-- v2: partition by (event, section) — smaller partitions, matches UI clicks
+PRIMARY KEY ((event_id, section_id), seat_id)
+
+-- separate denormalized table for the venue overview
+CREATE TABLE event_sections (event_id bigint, section_id bigint,
+    num_tickets bigint, price_floor bigint,
+    PRIMARY KEY (event_id, section_id));</div>
+            <ul>
+                <li>UX drives schema: users click a <b>section</b> → query that partition.</li>
+                <li>Top-level overview is served by a <b>denormalized</b> <code>event_sections</code>
+                    table (approximate counts are fine — eventual consistency is acceptable).</li>
+            </ul>
+            <blockquote>Takeaway: <b>"Design the table for the query, bound the partition size,
+            denormalize for reads."</b></blockquote>
+        </section>
+
+        <!-- 7. VS POSTGRES -->
         <section class="card note-card" id="vs-postgres">
-            <h2>5 · Cassandra vs PostgreSQL</h2>
+            <h2>7 · Cassandra vs PostgreSQL</h2>
             <table class="cmp">
                 <tr><th>Aspect</th><th>PostgreSQL</th><th>Cassandra</th></tr>
                 <tr><td>Type</td><td>Relational (SQL), ACID</td><td>Wide-column NoSQL, CQL</td></tr>
@@ -224,19 +337,69 @@
             Need massive write scale, multi-DC availability, key-based access → Cassandra.</b></blockquote>
         </section>
 
-        <!-- 6. BLOG SUMMARY (placeholder until link is provided) -->
+        <!-- 8. ADVANCED -->
+        <section class="card note-card" id="advanced">
+            <h2>8 · Advanced features (nice to know)</h2>
+            <ul>
+                <li><b>Storage-Attached Indexes (SAI)</b> — global secondary indexes on columns;
+                    lets you query non-key columns with decent performance (worse than partition-key
+                    queries). Avoids over-denormalizing for <i>rare</i> queries.</li>
+                <li><b>Materialized Views</b> — Cassandra auto-maintains a denormalized table from a
+                    source table, so your app doesn't have to write to multiple tables.</li>
+                <li><b>Search indexing</b> — wire Cassandra to Elasticsearch/Solr (e.g. Stratio Lucene
+                    Index) for full-text search.</li>
+            </ul>
+        </section>
+
+        <!-- 9. BLOG SUMMARY -->
         <section class="card note-card" id="blog">
-            <h2>6 · Blog Post Summary <span class="pill-tag pill-key">BLOG</span></h2>
-            <p id="blog-slot" class="muted">
-                🔗 <b>Waiting for the blog link.</b> The user said they'd share a post to
-                summarize — once provided, I'll summarize it here and restructure the notes
-                to match the article. The rest of the page is ready for revision regardless.
+            <h2>9 · Blog Summary — Hello Interview "Cassandra Deep Dive" <span class="pill-tag pill-key">BLOG</span></h2>
+            <p>
+                📄 Summarized from the PDF <b>CassandraDeepDive.pdf</b> — <i>Hello Interview, System
+                Design in a Hurry</i>. Full source:
+                <span class="muted small">hellointerview.com/learn/system-design/deep-dives/cassandra</span>
             </p>
-            <p class="muted small">Local notes.txt starting points already folded in above:
-            "created by an Indian engineer · highly capable/available/fault-tolerant ·
-            partitioning + consistent hashing · replication, fault tolerance, gossip,
-            leaderless design · tune consistency/correctness/uptime per request ·
-            &gt;100k writes/sec".</p>
+
+            <h3>Origin &amp; fit</h3>
+            <ul>
+                <li>Built by <b>Facebook</b> (originally for inbox search), now open source; used by
+                    Discord, Netflix, Apple, Bloomberg.</li>
+                <li>Open-source, distributed <b>NoSQL</b>, partitioned <b>wide-column</b> store,
+                    eventually consistent; combines ideas from <b>Dynamo</b> (partitioning/availability)
+                    and <b>Bigtable</b> (storage model).</li>
+                <li>Horizontally scales on commodity hardware.</li>
+            </ul>
+
+            <h3>Data model</h3>
+            <ul>
+                <li><b>Keyspace</b> ≈ a "database" (defines replication); <b>Table</b>, <b>Row</b>,
+                    <b>Column</b> (wide-column — columns can vary per row; each column carries write
+                    timestamp metadata; conflicts resolve by <b>last-write-wins</b>).</li>
+                <li>Think of it like a giant JSON: keyspace → table → row → column.</li>
+            </ul>
+
+            <h3>Core internals (the interview "points")</h3>
+            <ul>
+                <li><b>Consistent hashing</b> on a ring with <b>vnodes</b> (virtual nodes) → even load,
+                    minimal remapping on node add/remove.</li>
+                <li><b>Replication</b>: scan clockwise for RF replicas (skip same-physical-node);
+                    <b>NetworkTopologyStrategy</b> (production, DC/rack aware) vs <b>SimpleStrategy</b>.</li>
+                <li><b>Consistency levels</b> (ONE…ALL); <b>QUORUM</b> read+write guarantees the write
+                    is visible to the read.</li>
+                <li><b>Query routing</b>: any node = coordinator (leaderless).</li>
+                <li><b>LSM storage</b> (commit log → memtable → SSTable → compaction) = fast appends.</li>
+                <li><b>Gossip</b> + <b>Phi Accrual Failure Detector</b> + <b>hinted handoff</b> = self-healing,
+                    fault-tolerant.</li>
+            </ul>
+
+            <h3>Interview verdict</h3>
+            <ul>
+                <li><span class="check">✔</span> <b>Use when</b>: availability &gt; consistency, high
+                    write throughput, flexible/sparse schemas, and a few clear access patterns to model
+                    around.</li>
+                <li><span class="cross">✘</span> <b>Avoid when</b>: strict consistency, multi-table JOINs,
+                    ad-hoc aggregations needed.</li>
+            </ul>
         </section>
 
         <p class="muted small" style="text-align:center; margin-top:24px;">
