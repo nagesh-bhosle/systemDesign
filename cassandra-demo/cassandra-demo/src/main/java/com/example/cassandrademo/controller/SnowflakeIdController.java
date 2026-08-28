@@ -21,8 +21,9 @@ public class SnowflakeIdController {
     }
 
     @GetMapping("/snowflake/generateBatch")
-    public List<SnowflakeId> generateBatchSnowflakeIds(@RequestParam int count) {
-        return snowflakeIdService.generateBatchSnowflakeIds(count);
+    public List<SnowflakeId> generateBatchSnowflakeIds(@RequestParam(defaultValue = "5") int count) {
+        int safe = Math.max(1, Math.min(count, 1000));
+        return snowflakeIdService.generateBatchSnowflakeIds(safe);
     }
 
     @GetMapping("/snowflake/demo")

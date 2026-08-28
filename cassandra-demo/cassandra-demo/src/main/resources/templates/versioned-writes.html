@@ -28,9 +28,9 @@
         <section class="card">
             <h1>Versioned Writes</h1>
             <p>
-                Writes go through <code>/write-support</code>. Every save is an upsert -
-                the latest write wins per primary key, and older column versions remain
-                until compaction.
+                Writes go through <code>/write-support</code>. Each save is an <b>upsert</b>:
+                same sensor + timestamp + id means the latest write wins (last-write-wins),
+                and older column values remain until compaction.
             </p>
         </section>
 
@@ -38,8 +38,8 @@
             <div class="card">
                 <h3>Add a reading</h3>
                 <div class="form-col">
-                    <input id="ws-id" type="text" placeholder="id (e.g. reading-1)">
                     <input id="ws-sensor" type="text" placeholder="sensor id (e.g. sensor-42)">
+                    <input id="ws-id" type="text" placeholder="reading id (e.g. reading-1)">
                     <input id="ws-temp" type="number" step="0.1" placeholder="temperature (°C)">
                     <input id="ws-hum" type="number" step="0.1" placeholder="humidity (%)">
                     <button class="btn btn-primary" id="ws-save">Save reading</button>

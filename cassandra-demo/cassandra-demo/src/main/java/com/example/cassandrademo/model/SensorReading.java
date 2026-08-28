@@ -1,19 +1,16 @@
 package com.example.cassandrademo.model;
 
-import org.springframework.data.annotation.Id;
-import org.springframework.data.cassandra.core.mapping.Table;
 import org.springframework.data.cassandra.core.mapping.Column;
+import org.springframework.data.cassandra.core.mapping.PrimaryKey;
+import org.springframework.data.cassandra.core.mapping.Table;
 
 import java.time.Instant;
 
 @Table("sensor_readings")
 public class SensorReading {
 
-    @Id
-    private String id;
-
-    @Column("sensor_id")
-    private String sensorId;
+    @PrimaryKey
+    private SensorReadingKey key;
 
     @Column("temperature")
     private double temperature;
@@ -21,34 +18,21 @@ public class SensorReading {
     @Column("humidity")
     private double humidity;
 
-    @Column("timestamp")
-    private Instant timestamp;
-
     public SensorReading() {
     }
 
-    public SensorReading(String id, String sensorId, double temperature, double humidity, Instant timestamp) {
-        this.id = id;
-        this.sensorId = sensorId;
+    public SensorReading(SensorReadingKey key, double temperature, double humidity) {
+        this.key = key;
         this.temperature = temperature;
         this.humidity = humidity;
-        this.timestamp = timestamp;
     }
 
-    public String getId() {
-        return id;
+    public SensorReadingKey getKey() {
+        return key;
     }
 
-    public void setId(String id) {
-        this.id = id;
-    }
-
-    public String getSensorId() {
-        return sensorId;
-    }
-
-    public void setSensorId(String sensorId) {
-        this.sensorId = sensorId;
+    public void setKey(SensorReadingKey key) {
+        this.key = key;
     }
 
     public double getTemperature() {
@@ -67,11 +51,17 @@ public class SensorReading {
         this.humidity = humidity;
     }
 
-    public Instant getTimestamp() {
-        return timestamp;
+    // Convenience accessors so templates/JSON stay readable without touching key.getX().
+
+    public String getSensorId() {
+        return key == null ? null : key.getSensorId();
     }
 
-    public void setTimestamp(Instant timestamp) {
-        this.timestamp = timestamp;
+    public String getId() {
+        return key == null ? null : key.getId();
+    }
+
+    public Instant getTimestamp() {
+        return key == null ? null : key.getTimestamp();
     }
 }

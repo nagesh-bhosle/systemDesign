@@ -1,7 +1,7 @@
 package com.example.cassandrademo.demo;
 
 import com.example.cassandrademo.model.SensorReading;
-import com.example.cassandrademo.repository.SensorReadingRepository;
+import com.example.cassandrademo.service.VersionedWriteService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -12,13 +12,19 @@ import java.util.List;
 @RestController
 public class PartitionKeyDemo {
 
-    @Autowired
-    private SensorReadingRepository sensorReadingRepository;
+    private final VersionedWriteService versionedWriteService;
 
-    @GetMapping("/demo/partition-key")
-    public List<SensorReading> getSensorReadingsByPartitionKey(@RequestParam String partitionKey) {
-        return sensorReadingRepository.findAll();
+    @Autowired
+    public PartitionKeyDemo(VersionedWriteService versionedWriteService) {
+        this.versionedWriteService = versionedWriteService;
     }
 
-    // Additional methods to demonstrate partition key usage can be added here
+    /**
+     * Real partition-key query: reads a single sensor's partition via its
+     * partition key (sensor_id). Bounded to one partition — no full scan.
+     */
+    @GetMapping("/demo/partition-key")
+    public List<SensorReading> getSensorReadingsByPartitionKey(@RequestParam String partitionKey) {
+        return versionedWriteService.findBySensorId(partitionKey);
+    }
 }

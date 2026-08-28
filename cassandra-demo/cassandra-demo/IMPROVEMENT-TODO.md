@@ -16,14 +16,14 @@ Scope: `systemDesign/cassandra-demo/cassandra-demo`
 
 ## P1 — Correct the demonstrations
 
-- [ ] Model partitioning and clustering with `PRIMARY KEY ((sensor_id), timestamp, id)`.
-- [ ] Replace unbounded `findAll()` partition reads with bounded partition-key queries.
-- [ ] Make the clustering page query and display one sensor partition in clustering order.
-- [ ] Rename topology actions as simulation, or implement a truthful non-mutating status/demo flow.
-- [ ] Implement consistency-level experiments using explicit driver consistency levels, clearly labeled as illustrative.
-- [ ] Clarify versioned writes as last-write-wins, or implement application-level optimistic versioning.
-- [ ] Fix Snowflake sequence rollover, configurable worker ID, and server-side batch limits.
-- [ ] Remove dead or generic services that interpolate arbitrary CQL identifiers.
+- [x] Model partitioning and clustering with `PRIMARY KEY ((sensor_id), timestamp, id)`.
+- [x] Replace unbounded `findAll()` partition reads with bounded partition-key queries.
+- [x] Make the clustering page query and display one sensor partition in clustering order.
+- [x] Rename topology actions as simulation, or implement a truthful non-mutating status/demo flow.
+- [x] Implement consistency-level experiments using explicit driver consistency levels, clearly labeled as illustrative.
+- [x] Clarify versioned writes as last-write-wins, or implement application-level optimistic versioning.
+- [x] Fix Snowflake sequence rollover, configurable worker ID, and server-side batch limits.
+- [x] Remove dead or generic services that interpolate arbitrary CQL identifiers.
 
 ## P1 — Security and API hardening
 

@@ -4,6 +4,7 @@ import com.example.cassandrademo.model.SensorReading;
 import com.example.cassandrademo.service.VersionedWriteService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -20,9 +21,12 @@ public class ClusteringOrderDemo {
         this.versionedWriteService = versionedWriteService;
     }
 
-    @GetMapping("/all")
-    public List<SensorReading> allReadings() {
-        // Rows within a partition are stored in clustering order
-        return versionedWriteService.findAll();
+    /**
+     * Reads ONE partition (sensor) and returns its rows in physical clustering
+     * order (newest timestamp first) — no ORDER BY needed.
+     */
+    @GetMapping("/sensor/{sensorId}")
+    public List<SensorReading> readingsForSensor(@PathVariable String sensorId) {
+        return versionedWriteService.findBySensorId(sensorId);
     }
 }

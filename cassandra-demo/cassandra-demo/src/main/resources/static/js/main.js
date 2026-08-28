@@ -18,6 +18,13 @@ async function getJson(url) {
 
 async function getText(url) {
     const res = await fetch(url);
+    if (!res.ok) throw new Error(res.status + " " + res.statusText);
+    return res.text();
+}
+
+async function postText(url) {
+    const res = await fetch(url, { method: "POST" });
+    if (!res.ok) throw new Error(res.status + " " + res.statusText);
     return res.text();
 }
 
@@ -40,15 +47,23 @@ function renderReadings(container, rows) {
     if (!container) return;
     container.textContent = "";
     if (!Array.isArray(rows) || rows.length === 0) {
-        container.innerHTML = '<span class="muted">No readings yet - add one below.</span>';
+        const empty = document.createElement("span");
+        empty.className = "muted";
+        empty.textContent = "No readings yet - add one below.";
+        container.appendChild(empty);
         return;
     }
     for (const r of rows) {
         const div = document.createElement("div");
         div.className = "row-item";
-        div.innerHTML =
-            '<span class="k">' + (r.sensorId || r.id || "?") + "</span>" +
-            '<span class="v">temp ' + r.temperature + "°C · hum " + r.humidity + "%</span>";
+        const k = document.createElement("span");
+        k.className = "k";
+        k.textContent = r.sensorId || r.id || "?";
+        const v = document.createElement("span");
+        v.className = "v";
+        v.textContent = "temp " + r.temperature + "°C · hum " + r.humidity + "%";
+        div.appendChild(k);
+        div.appendChild(v);
         container.appendChild(div);
     }
 }
@@ -58,7 +73,29 @@ async function loadReadings(elId) {
         renderReadings(el(elId), await getJson("/write-support/all"));
     } catch (e) {
         const c = el(elId);
-        if (c) c.innerHTML = '<span class="muted">Could not load readings: ' + e.message + "</span>";
+        if (c) {
+            c.textContent = "";
+            const msg = document.createElement("span");
+            msg.className = "muted";
+            msg.textContent = "Could not load readings: " + e.message;
+            c.appendChild(msg);
+        }
+    }
+}
+
+// One sensor partition, in physical clustering order (newest first)
+async function loadReadingsForSensor(elId, sensorId) {
+    try {
+        renderReadings(el(elId), await getJson("/demo/clustering-order/sensor/" + encodeURIComponent(sensorId)));
+    } catch (e) {
+        const c = el(elId);
+        if (c) {
+            c.textContent = "";
+            const msg = document.createElement("span");
+            msg.className = "muted";
+            msg.textContent = "Could not load sensor readings: " + e.message;
+            c.appendChild(msg);
+        }
     }
 }
 
@@ -79,8 +116,18 @@ document.addEventListener("DOMContentLoaded", function () {
         loadReadings("pk-rows");
     }
 
-    // Clustering page
-    if (el("cl-rows")) loadReadings("cl-rows");
+    // Clustering page: show one sensor partition in physical clustering order
+    if (el("cl-rows")) {
+        const sensor = (el("cl-sensor") && el("cl-sensor").value.trim()) || "sensor-1";
+        loadReadingsForSensor("cl-rows", sensor);
+        const go = el("cl-go");
+        if (go) {
+            go.addEventListener("click", () => {
+                const s = (el("cl-sensor").value.trim()) || "sensor-1";
+                loadReadingsForSensor("cl-rows", s);
+            });
+        }
+    }
 
     // Topology page
     if (el("ct-refresh")) {
@@ -92,13 +139,17 @@ document.addEventListener("DOMContentLoaded", function () {
         el("ct-refresh").addEventListener("click", refresh);
         el("ct-add").addEventListener("click", async () => {
             const ip = el("ct-ip").value.trim() || "10.0.0.7";
-            await getText("/demo/node-scaling/add-node?nodeIp=" + encodeURIComponent(ip));
-            refresh();
+            try {
+                show(el("ct-status"), await postText("/demo/node-scaling/add-node?nodeIp=" + encodeURIComponent(ip)));
+            } catch (e) { show(el("ct-status"), "Error: " + e.message); }
+            loadClusterStatus(el("ct-name"), el("ct-nodes"));
         });
         el("ct-remove").addEventListener("click", async () => {
             const ip = el("ct-ip").value.trim() || "10.0.0.7";
-            await getText("/demo/node-scaling/remove-node?nodeIp=" + encodeURIComponent(ip));
-            refresh();
+            try {
+                show(el("ct-status"), await postText("/demo/node-scaling/remove-node?nodeIp=" + encodeURIComponent(ip)));
+            } catch (e) { show(el("ct-status"), "Error: " + e.message); }
+            loadClusterStatus(el("ct-name"), el("ct-nodes"));
         });
         refresh();
     }
@@ -114,12 +165,15 @@ document.addEventListener("DOMContentLoaded", function () {
     // Versioned writes page
     if (el("ws-save")) {
         el("ws-save").addEventListener("click", async () => {
+            const timestamp = new Date().toISOString();
             const body = {
-                id: el("ws-id").value.trim() || "reading-" + Date.now(),
-                sensorId: el("ws-sensor").value.trim() || "sensor-42",
+                key: {
+                    sensorId: el("ws-sensor").value.trim() || "sensor-42",
+                    id: el("ws-id").value.trim() || "reading-" + Date.now(),
+                    timestamp: timestamp
+                },
                 temperature: parseFloat(el("ws-temp").value) || 20.0,
-                humidity: parseFloat(el("ws-hum").value) || 50.0,
-                timestamp: new Date().toISOString()
+                humidity: parseFloat(el("ws-hum").value) || 50.0
             };
             try {
                 const res = await fetch("/write-support/add", {
@@ -138,7 +192,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // Snowflake page
     if (el("sf-go")) {
         el("sf-go").addEventListener("click", async () => {
-            const n = Math.min(Math.max(parseInt(el("sf-count").value, 10) || 5, 1), 50);
+            const n = Math.min(Math.max(parseInt(el("sf-count").value, 10) || 5, 1), 1000);
             try {
                 const list = await getJson("/snowflake/generateBatch?count=" + n);
                 show(el("sf-out"), list.map(x => x.id).join("\n"));
@@ -147,9 +201,14 @@ document.addEventListener("DOMContentLoaded", function () {
                 for (const item of list) {
                     const div = document.createElement("div");
                     div.className = "row-item";
-                    div.innerHTML =
-                        '<span class="k">' + item.id + "</span>" +
-                        '<span class="v">worker ' + item.workerId + " · seq " + item.sequence + "</span>";
+                    const k = document.createElement("span");
+                    k.className = "k";
+                    k.textContent = item.id;
+                    const v = document.createElement("span");
+                    v.className = "v";
+                    v.textContent = "worker " + item.workerId + " · seq " + item.sequence;
+                    div.appendChild(k);
+                    div.appendChild(v);
                     box.appendChild(div);
                 }
             } catch (e) { show(el("sf-out"), "Error: " + e.message); }

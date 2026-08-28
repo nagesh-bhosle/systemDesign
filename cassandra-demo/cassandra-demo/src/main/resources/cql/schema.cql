@@ -5,17 +5,18 @@ CREATE KEYSPACE IF NOT EXISTS cassandra_demo WITH REPLICATION = {
     'replication_factor': 1
 };
 
--- Sensor readings. This schema matches com.example.cassandrademo.model.SensorReading
--- (id is the primary key; sensor_id/temperature/humidity/timestamp are columns).
--- NOTE: modelling partition + clustering keys properly is the next improvement
--- batch (see IMPROVEMENT-TODO.md) and will change this table's PRIMARY KEY.
+-- Sensor readings, modelled the way Cassandra wants you to think:
+--   partition key  = sensor_id  -> all rows for a sensor live on one partition
+--   clustering key = timestamp  -> rows are physically ordered newest-first
+-- This matches com.example.cassandrademo.model.SensorReading (+ SensorReadingKey).
 CREATE TABLE IF NOT EXISTS cassandra_demo.sensor_readings (
-    id          text PRIMARY KEY,
     sensor_id   text,
+    timestamp   timestamp,
+    id          text,
     temperature double,
     humidity    double,
-    timestamp   timestamp
-);
+    PRIMARY KEY ((sensor_id), timestamp, id)
+) WITH CLUSTERING ORDER BY (timestamp DESC);
 
 -- Snowflake IDs stored by the app.
 CREATE TABLE IF NOT EXISTS cassandra_demo.snowflake_ids (
@@ -23,4 +24,11 @@ CREATE TABLE IF NOT EXISTS cassandra_demo.snowflake_ids (
     generated_id bigint,
     worker_id    int,
     created_at   timestamp
+);
+
+-- Table used by the consistency demo (writes/reads at explicit consistency levels).
+CREATE TABLE IF NOT EXISTS cassandra_demo.consistency_demo (
+    id         text PRIMARY KEY,
+    value      text,
+    written_at timestamp
 );

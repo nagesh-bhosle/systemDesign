@@ -17,14 +17,12 @@ public class ClusterController {
 
     @PostMapping("/addNode")
     public String addNode(@RequestParam String nodeAddress) {
-        clusterService.addNode(nodeAddress);
-        return "Node added: " + nodeAddress;
+        return clusterService.addNode(nodeAddress);
     }
 
     @PostMapping("/removeNode")
     public String removeNode(@RequestParam String nodeAddress) {
-        clusterService.removeNode(nodeAddress);
-        return "Node removed: " + nodeAddress;
+        return clusterService.removeNode(nodeAddress);
     }
 
     @GetMapping("/status")

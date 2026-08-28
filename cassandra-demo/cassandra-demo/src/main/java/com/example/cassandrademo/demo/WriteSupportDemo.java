@@ -28,9 +28,9 @@ public class WriteSupportDemo {
         return versionedWriteService.findAll();
     }
 
-    @GetMapping("/latest/{id}")
-    public SensorReading getLatestReading(@PathVariable String id) {
-        return versionedWriteService.findLatestById(id);
+    @GetMapping("/sensor/{sensorId}")
+    public List<SensorReading> getSensorReadings(@PathVariable String sensorId) {
+        return versionedWriteService.findBySensorId(sensorId);
     }
 
     @PutMapping("/update")

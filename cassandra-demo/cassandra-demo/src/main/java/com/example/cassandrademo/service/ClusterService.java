@@ -1,44 +1,53 @@
 package com.example.cassandrademo.service;
 
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
 import com.datastax.oss.driver.api.core.CqlSession;
+import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * NOTE: real Cassandra nodes cannot be added/removed by issuing CQL from an
+ * application. This service therefore reports the REAL cluster status from the
+ * driver, but node add/remove is an in-memory SIMULATION clearly labeled as such.
+ */
 @Service
 public class ClusterService {
 
     private final CqlSession session;
+    private final List<String> simulatedNodes = new ArrayList<>();
 
-    @Autowired
     public ClusterService(CqlSession session) {
         this.session = session;
     }
 
-    public void addNode(String nodeIp) {
-        // Logic to add a node to the Cassandra cluster
-        // This typically involves updating the Cassandra configuration
-        // and using the appropriate CQL commands to join the cluster
+    /** Simulated only — returns the operation result text, does not touch the cluster. */
+    public String addNode(String nodeIp) {
+        if (simulatedNodes.contains(nodeIp)) {
+            return "Simulated: node " + nodeIp + " already in the demo cluster.";
+        }
+        simulatedNodes.add(nodeIp);
+        return "Simulated: node " + nodeIp + " added to the demo cluster (in-memory only).";
     }
 
-    public void removeNode(String nodeIp) {
-        // Logic to remove a node from the Cassandra cluster
-        // This typically involves updating the Cassandra configuration
-        // and using the appropriate CQL commands to remove the node
-    }
-
-    public void scaleCluster(int newSize) {
-        // Logic to scale the cluster to a new size
-        // This could involve adding or removing nodes based on the new size
-    }
-
-    public void displayClusterTopology() {
-        // Logic to display the current cluster topology
-        // This could involve querying the system tables in Cassandra
+    /** Simulated only — returns the operation result text, does not touch the cluster. */
+    public String removeNode(String nodeIp) {
+        if (simulatedNodes.remove(nodeIp)) {
+            return "Simulated: node " + nodeIp + " removed from the demo cluster.";
+        }
+        return "Simulated: node " + nodeIp + " not present in the demo cluster.";
     }
 
     public String getClusterStatus() {
-        // Basic status info from the live CQL session
-        return "Connected to cluster: " + session.getMetadata().getClusterName()
-                + ", nodes: " + session.getMetadata().getNodes().size();
+        String cluster = String.valueOf(session.getMetadata().getClusterName())
+                .replaceAll("^Optional\\[(.*)\\]$", "$1");
+        return "Connected to cluster: " + cluster
+                + ", nodes: " + session.getMetadata().getNodes().size()
+                + " | simulated nodes: " + simulatedNodes.size();
+    }
+
+    public List<String> getSimulatedNodes() {
+        return Collections.unmodifiableList(simulatedNodes);
     }
 }

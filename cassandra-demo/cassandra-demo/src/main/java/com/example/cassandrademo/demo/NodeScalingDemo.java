@@ -17,14 +17,12 @@ public class NodeScalingDemo {
 
     @PostMapping("/add-node")
     public String addNode(@RequestParam String nodeIp) {
-        clusterService.addNode(nodeIp);
-        return "Node added: " + nodeIp;
+        return clusterService.addNode(nodeIp);
     }
 
     @PostMapping("/remove-node")
     public String removeNode(@RequestParam String nodeIp) {
-        clusterService.removeNode(nodeIp);
-        return "Node removed: " + nodeIp;
+        return clusterService.removeNode(nodeIp);
     }
 
     @GetMapping("/status")
