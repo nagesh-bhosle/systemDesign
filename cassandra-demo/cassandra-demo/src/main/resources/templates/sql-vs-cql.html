@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>SQL vs CQL · Cassandra Demo</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" th:href="@{/}">
+                <span class="brand-badge">C</span>
+                <span>Cassandra <b>Demo</b></span>
+            </a>
+            <nav class="nav">
+                <a th:href="@{/pages/partitioning}">Partitioning</a>
+                <a th:href="@{/pages/clustering}">Clustering</a>
+                <a th:href="@{/pages/cluster-topology}">Topology</a>
+                <a th:href="@{/pages/consistency}">Consistency</a>
+                <a th:href="@{/pages/versioned-writes}">Versioned Writes</a>
+                <a th:href="@{/pages/snowflake}">Snowflake IDs</a>
+                <a class="active" th:href="@{/pages/sql-vs-cql}">SQL vs CQL</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="card">
+            <h1>SQL vs CQL</h1>
+            <p>
+                CQL looks like SQL but the similarities end at the syntax. There are no joins,
+                no arbitrary WHERE clauses, and no aggregates over the whole table - everything
+                follows from the partition key.
+            </p>
+        </section>
+
+        <section class="grid two-col">
+            <div class="card">
+                <h3>Side by side</h3>
+                <table class="table">
+                    <tr><th>Feature</th><th>SQL</th><th>CQL</th></tr>
+                    <tr><td>Joins</td><td>Supported</td><td>Not supported</td></tr>
+                    <tr><td>WHERE</td><td>Any column</td><td>Partition key (+ clustering)</td></tr>
+                    <tr><td>ORDER BY</td><td>Query-time</td><td>Schema-time (clustering)</td></tr>
+                    <tr><td>Schema</td><td>Normalized</td><td>Denormalized per query</td></tr>
+                    <tr><td>Scale-out</td><td>Vertical first</td><td>Horizontal by design</td></tr>
+                </table>
+            </div>
+            <div class="card">
+                <h3>Try a CQL query</h3>
+                <p class="muted small">Server-side CQL console:</p>
+                <div class="form-row">
+                    <input id="cq-input" type="text" placeholder="e.g. /sql-vs-cql">
+                    <button class="btn btn-primary" id="cq-go">Open endpoint</button>
+                </div>
+                <pre id="cq-out" class="code" hidden></pre>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <p>Cassandra Demo · Spring Boot + Thymeleaf + Docker</p>
+    </footer>
+
+    <script th:src="@{/js/main.js}"></script>
+</body>
+</html>

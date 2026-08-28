@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Cluster Topology · Cassandra Demo</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" th:href="@{/}">
+                <span class="brand-badge">C</span>
+                <span>Cassandra <b>Demo</b></span>
+            </a>
+            <nav class="nav">
+                <a th:href="@{/pages/partitioning}">Partitioning</a>
+                <a th:href="@{/pages/clustering}">Clustering</a>
+                <a class="active" th:href="@{/pages/cluster-topology}">Topology</a>
+                <a th:href="@{/pages/consistency}">Consistency</a>
+                <a th:href="@{/pages/versioned-writes}">Versioned Writes</a>
+                <a th:href="@{/pages/snowflake}">Snowflake IDs</a>
+                <a th:href="@{/pages/sql-vs-cql}">SQL vs CQL</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="card">
+            <h1>Cluster Topology</h1>
+            <p>
+                Cassandra is masterless: every node owns a token range and serves reads/writes.
+                Add or remove nodes below and watch the cluster status.
+            </p>
+            <div class="status-strip">
+                <span class="pill"><b>Cluster:</b> <span id="ct-name">…</span></span>
+                <span class="pill"><b>Nodes:</b> <span id="ct-nodes">…</span></span>
+            </div>
+        </section>
+
+        <section class="grid two-col">
+            <div class="card">
+                <h3>Simulate node ops</h3>
+                <div class="form-row">
+                    <input id="ct-ip" type="text" placeholder="10.0.0.7">
+                    <button class="btn btn-primary" id="ct-add">Add node</button>
+                    <button class="btn" id="ct-remove">Remove node</button>
+                </div>
+                <p class="muted small">Calls <code>/demo/node-scaling/add-node</code> / <code>remove-node</code>.</p>
+            </div>
+            <div class="card">
+                <h3>Status</h3>
+                <pre id="ct-status" class="code">Press refresh…</pre>
+                <button class="btn" id="ct-refresh">Refresh status</button>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <p>Cassandra Demo · Spring Boot + Thymeleaf + Docker</p>
+    </footer>
+
+    <script th:src="@{/js/main.js}"></script>
+</body>
+</html>

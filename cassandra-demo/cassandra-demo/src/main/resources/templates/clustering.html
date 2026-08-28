@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Clustering · Cassandra Demo</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" th:href="@{/}">
+                <span class="brand-badge">C</span>
+                <span>Cassandra <b>Demo</b></span>
+            </a>
+            <nav class="nav">
+                <a th:href="@{/pages/partitioning}">Partitioning</a>
+                <a class="active" th:href="@{/pages/clustering}">Clustering</a>
+                <a th:href="@{/pages/cluster-topology}">Topology</a>
+                <a th:href="@{/pages/consistency}">Consistency</a>
+                <a th:href="@{/pages/versioned-writes}">Versioned Writes</a>
+                <a th:href="@{/pages/snowflake}">Snowflake IDs</a>
+                <a th:href="@{/pages/sql-vs-cql}">SQL vs CQL</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="card">
+            <h1>Clustering Order</h1>
+            <p>
+                Inside a partition, rows are physically sorted by the <b>clustering columns</b>,
+                declared in the table schema. That is why "ORDER BY" in Cassandra is a design-time
+                decision, not a query-time one.
+            </p>
+        </section>
+
+        <section class="card">
+            <h3>Pick a sensor partition</h3>
+            <div class="form-row">
+                <input id="cl-sensor" type="text" placeholder="e.g. sensor-1" value="sensor-1">
+                <button class="btn btn-primary" id="cl-go">Show readings</button>
+            </div>
+            <p class="muted small">Reads one partition (<code>/demo/clustering-order/sensor/{sensorId}</code>) in
+            physical clustering order — newest first, no ORDER BY.</p>
+        </section>
+
+        <section class="card">
+            <h3>Stored readings</h3>
+            <div id="cl-rows" class="rows">Loading…</div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <p>Cassandra Demo · Spring Boot + Thymeleaf + Docker</p>
+    </footer>
+
+    <script th:src="@{/js/main.js}"></script>
+</body>
+</html>

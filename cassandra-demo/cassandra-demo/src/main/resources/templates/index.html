@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cassandra Demo</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" th:href="@{/}">
+                <span class="brand-badge">C</span>
+                <span>Cassandra <b>Demo</b></span>
+            </a>
+            <nav class="nav">
+                <a th:href="@{/pages/partitioning}">Partitioning</a>
+                <a th:href="@{/pages/clustering}">Clustering</a>
+                <a th:href="@{/pages/cluster-topology}">Topology</a>
+                <a th:href="@{/pages/consistency}">Consistency</a>
+                <a th:href="@{/pages/versioned-writes}">Versioned Writes</a>
+                <a th:href="@{/pages/snowflake}">Snowflake IDs</a>
+                <a th:href="@{/pages/sql-vs-cql}">SQL vs CQL</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="hero card">
+            <h1>Apache Cassandra, hands-on</h1>
+            <p>
+                A guided tour of what makes Cassandra different from traditional SQL databases:
+                partition-first data modeling, tunable consistency, masterless replication,
+                and time-ordered unique IDs.
+            </p>
+            <div class="hero-actions">
+                <a class="btn btn-primary" th:href="@{/pages/partitioning}">Start with Partitioning</a>
+                <a class="btn" th:href="@{/pages/sql-vs-cql}">SQL vs CQL</a>
+            </div>
+            <div class="status-strip">
+                <span class="pill"><b>Cluster:</b> <span id="cluster-name">…</span></span>
+                <span class="pill"><b>Nodes:</b> <span id="node-count">…</span></span>
+                <span class="pill"><b>Endpoint:</b> localhost:9042</span>
+            </div>
+        </section>
+
+        <section class="grid">
+            <a class="card feature" th:href="@{/pages/partitioning}">
+                <h3>Partitioning</h3>
+                <p>How Murmur3 hashing scatters rows across nodes by the partition key.</p>
+            </a>
+            <a class="card feature" th:href="@{/pages/clustering}">
+                <h3>Clustering</h3>
+                <p>Row ordering inside a partition and why ORDER BY is a table design choice.</p>
+            </a>
+            <a class="card feature" th:href="@{/pages/cluster-topology}">
+                <h3>Topology</h3>
+                <p>Ring topology, tokens, seeds, and what happens when nodes join or leave.</p>
+            </a>
+            <a class="card feature" th:href="@{/pages/consistency}">
+                <h3>Consistency</h3>
+                <p>ONE, QUORUM, ALL - tune the tradeoff between latency and accuracy per query.</p>
+            </a>
+            <a class="card feature" th:href="@{/pages/versioned-writes}">
+                <h3>Versioned Writes</h3>
+                <p>Writes and updates through the demo REST API, stored in Cassandra.</p>
+            </a>
+            <a class="card feature" th:href="@{/pages/snowflake}">
+                <h3>Snowflake IDs</h3>
+                <p>Time-ordered 64-bit IDs generated from timestamp + worker + sequence.</p>
+            </a>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <p>Cassandra Demo · Spring Boot + Thymeleaf + Docker</p>
+    </footer>
+
+    <script th:src="@{/js/main.js}"></script>
+</body>
+</html>

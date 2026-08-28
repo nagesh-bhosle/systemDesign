@@ -1,0 +1,7 @@
+# Native libs dropped into the project dir by the DataStax driver (JFFI)
+jffi*.dylib
+jffi*.so
+jffi*.dll
+
+# Build output (also ignored at repo root)
+target/
