@@ -94,6 +94,7 @@ git push origin --delete feature/<topic>
 - ❌ Never force-push to `main`
 - ❌ Never skip the branch step, even for "small" changes
 - ❌ Never push to `main` without merging through the workflow
+- ❌ Never create a new project without `start.sh` and `stop.sh`
 
 ## Exceptions
 
@@ -102,10 +103,56 @@ git push origin --delete feature/<topic>
 
 ---
 
+## New projects: `start.sh` and `stop.sh` (MANDATORY)
+
+Every time a **new project** (demo, service, lab, app, etc.) is created in this repository,
+the LLM **must** add two one-click scripts at the project root:
+
+- `start.sh` — one-click **start**: builds/launches the application and every related
+  service it depends on (databases, caches, message brokers, containers, etc.), waits for
+  readiness, and prints the URLs to open.
+- `stop.sh` — one-click **stop**: shuts down the application and all related services
+  started by `start.sh`, and cleans up (containers/networks/temp files where applicable).
+
+Rules:
+
+1. Both scripts are **required** for every new project — no exceptions.
+2. `start.sh` must be idempotent (safe to run repeatedly) and must not require manual
+   extra steps after it finishes.
+3. `stop.sh` must clean up everything `start.sh` created, so a fresh `start.sh` afterwards
+   works from a clean slate.
+4. Make them executable (`chmod +x start.sh stop.sh`).
+5. If the project is a sub-folder (e.g. `dropbox-demo/`, `booking-demo/`), put the scripts
+   inside that project folder.
+6. Containerized projects should delegate to `docker compose up -d` / `docker compose down`
+   (or the project's own compose file) inside the scripts.
+7. Add a short comment at the top of each script describing what it starts/stops.
+
+Example (containerized project):
+
+```bash
+#!/usr/bin/env bash
+# start.sh — start <project> app + its database/cache services
+set -euo pipefail
+cd "$(dirname "$0")"
+docker compose up -d --build
+echo "App ready at http://localhost:8080"
+```
+
+```bash
+#!/usr/bin/env bash
+# stop.sh — stop <project> app + its database/cache services
+set -euo pipefail
+cd "$(dirname "$0")"
+docker compose down
+```
+
 ## Hello Interview implementations
 
 When adding or extending a system-design **demo** from Hello Interview (or similar):
 
 1. Read [`.cursor/skills/hello-interview-system-design/SKILL.md`](.cursor/skills/hello-interview-system-design/SKILL.md).
 2. Default to the breakdown’s “great” path; expose other named alternatives as `application.yml` flags.
-3. Place code in `<problem>-demo/` with Docker, `./start.sh`, and a short original design note (`<Problem>.md`).
+3. Place code in `<problem>-demo/` with Docker and `./start.sh` / `./stop.sh`
+   (see “New projects: `start.sh` and `stop.sh` (MANDATORY)” above), and a short
+   original design note (`<Problem>.md`).
