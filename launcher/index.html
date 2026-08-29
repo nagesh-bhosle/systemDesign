@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>systemDesign Launcher</title>
+<style>
+:root{
+  --bg:#0f1419; --panel:#171e26; --panel2:#1d2733; --border:#2a3644;
+  --text:#e6edf3; --muted:#8b98a9; --accent:#4fc3f7; --green:#3fb950;
+  --red:#f85149; --amber:#d29922; --radius:10px;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Inter",-apple-system,"Segoe UI",Roboto,sans-serif;
+  background:var(--bg);color:var(--text);line-height:1.5}
+header{position:sticky;top:0;z-index:10;background:var(--panel);
+  border-bottom:1px solid var(--border)}
+.header-inner{max-width:1100px;margin:0 auto;padding:14px 20px;
+  display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;font-size:1.05rem;font-weight:600}
+.brand .badge{width:34px;height:34px;display:grid;place-items:center;border-radius:9px;
+  background:linear-gradient(135deg,#4fc3f7,#0288d1);color:#062733;font-weight:800}
+.brand b{color:var(--accent)}
+.global{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.btn{background:var(--panel2);color:var(--text);border:1px solid var(--border);
+  border-radius:8px;padding:8px 16px;font-size:.9rem;cursor:pointer;transition:.15s}
+.btn:hover{border-color:var(--accent)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-green{background:var(--green);border-color:var(--green);color:#062733;font-weight:600}
+.btn-red{background:var(--red);border-color:var(--red);color:#fff;font-weight:600}
+.container{max-width:1100px;margin:0 auto;padding:24px 20px 60px}
+.sub{color:var(--muted);margin-top:0}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;margin-top:20px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
+  padding:18px 20px;display:flex;flex-direction:column;gap:10px}
+.card h3{margin:0;font-size:1.05rem}
+.card .desc{color:var(--muted);font-size:.85rem;margin:0}
+.meta{font-size:.78rem;color:var(--muted);display:flex;flex-direction:column;gap:2px}
+.status-row{display:flex;align-items:center;gap:8px;font-size:.85rem}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+.dot.up{background:var(--green);box-shadow:0 0 8px var(--green)}
+.dot.down{background:var(--red)}
+.dot.starting{background:var(--amber);animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.3}}
+.url{font-family:"JetBrains Mono",monospace;font-size:.85rem;color:var(--accent);
+  word-break:break-all}
+.port-line{display:flex;align-items:center;gap:8px}
+.port-line label{font-size:.8rem;color:var(--muted)}
+.port-line input{width:80px;background:var(--bg);border:1px solid var(--border);
+  color:var(--text);border-radius:6px;padding:6px 8px;font-size:.85rem}
+.actions{display:flex;gap:8px;margin-top:4px}
+.actions .btn{flex:1}
+.logs{display:none;position:fixed;inset:0;background:rgba(6,10,14,.7);
+  z-index:50;align-items:center;justify-content:center;padding:20px}
+.logs.open{display:flex}
+.log-box{background:#0b0f14;border:1px solid var(--border);border-radius:10px;
+  width:min(820px,100%);max-height:80vh;display:flex;flex-direction:column}
+.log-head{display:flex;justify-content:space-between;align-items:center;
+  padding:12px 16px;border-bottom:1px solid var(--border)}
+.log-head h4{margin:0}
+pre{flex:1;margin:0;padding:14px 16px;overflow:auto;font-size:.78rem;
+  font-family:"JetBrains Mono",monospace;white-space:pre-wrap;color:#d7e2ec}
+.err{color:var(--red);font-size:.82rem}
+.banner{background:rgba(79,195,247,.12);border:1px solid var(--accent);border-radius:8px;
+  padding:10px 14px;font-size:.85rem;color:var(--muted);margin-top:12px}
+</style>
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <div class="brand"><span class="badge">SD</span><span>systemDesign <b>Launcher</b></span></div>
+    <div class="global">
+      <span class="meta" id="launcher-meta"></span>
+      <button class="btn btn-green" id="start-all">▶ Start all</button>
+      <button class="btn btn-red" id="stop-all">■ Stop all</button>
+      <button class="btn" id="refresh">↻ Refresh</button>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+  <h1>Run any project</h1>
+  <p class="sub">One click to start/stop any demo. If a port is busy, edit the port and
+     it will relaunch there. Ports are remembered between sessions.</p>
+
+  <div id="banner" class="banner" hidden></div>
+  <div id="err" class="err"></div>
+
+  <div class="cards" id="cards"></div>
+</div>
+
+<div class="logs" id="logs">
+  <div class="log-box">
+    <div class="log-head"><h4 id="log-title">Logs</h4>
+      <button class="btn" id="log-close">Close</button></div>
+    <pre id="log-body"></pre>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+let PROJS=[];
+
+async function api(path, opts){
+  const r=await fetch(path, opts);
+  if(!r.ok){ let m=r.statusText; try{const j=await r.json(); m=j.error||m;}catch(e){} throw new Error(m); }
+  return r.json();
+}
+
+function esc(s){const d=document.createElement('div');d.textContent=s??'';return d.innerHTML;}
+
+function render(projs){
+  const cards=$('#cards'); cards.innerHTML='';
+  for(const p of projs){
+    const card=document.createElement('div'); card.className='card';
+    card.innerHTML=`
+      <div class="status-row">
+        <span class="dot ${p.running?'up':'down'}" data-dot></span>
+        <h3 style="margin:0">${esc(p.name)}</h3>
+        <span class="dot ${p.running?'up':'down'}"></span>
+      </div>
+      <p class="desc">${esc(p.desc)}</p>
+      <div class="meta">
+        <span>📁 ${esc(p.path)}</span>
+        <span>🐳 ${esc(p.docker)}</span>
+      </div>
+      <div class="status-row"><span>Status:</span>
+        <b data-status style="color:${p.running?'var(--green)':'var(--muted)'}">${p.running?'RUNNING':'stopped'}</b>
+      </div>
+      <div class="url" data-url>${p.running?`<a href="${p.url}" target="_blank">${p.url}</a>`:'—'}</div>
+      <div class="port-line">
+        <label for="port-${p.id}">Port</label>
+        <input id="port-${p.id}" type="number" min="1" max="65535" value="${p.port}">
+        <button class="btn" data-save>Save</button>
+      </div>
+      <div class="actions">
+        <button class="btn btn-green" data-start>▶ Start</button>
+        <button class="btn btn-red" data-stop>■ Stop</button>
+        <button class="btn" data-logs>📄 Logs</button>
+      </div>
+    `;
+    cards.appendChild(card);
+
+    const startBtn=card.querySelector('[data-start]');
+    const stopBtn=card.querySelector('[data-stop]');
+    const saveBtn=card.querySelector('[data-save]');
+    const urlEl=card.querySelector('[data-url]');
+    const statusEl=card.querySelector('[data-status]');
+    const dotEl=card.querySelector('[data-dot]');
+    const input=card.querySelector('input');
+
+    const setStarting=()=>{
+      dotEl.className='dot starting';
+      statusEl.textContent='starting…'; statusEl.style.color='var(--amber)';
+      startBtn.disabled=true; stopBtn.disabled=true;
+    };
+
+    startBtn.onclick=async()=>{
+      setStarting();
+      try{
+        const port=parseInt(input.value,10);
+        const r=await api('/api/start?id='+p.id+(port?'&port='+port:''));
+        if(r.error) throw new Error(r.error);
+        await waitUp(p.id, r.url);
+      }catch(e){ showErr(e.message); }
+      refresh();
+    };
+
+    stopBtn.onclick=async()=>{
+      try{ await api('/api/stop?id='+p.id); }catch(e){ showErr(e.message); }
+      refresh();
+    };
+
+    saveBtn.onclick=async()=>{
+      try{
+        const r=await api('/api/port?id='+p.id+'&port='+parseInt(input.value,10),{method:'POST'});
+        if(r.error) throw new Error(r.error);
+        showBanner(p.name+': port saved to '+r.port);
+      }catch(e){ showErr(e.message); }
+    };
+
+    urlEl.addEventListener('click', e=>{ if(e.target.tagName!=='A') e.preventDefault(); });
+
+    card.querySelector('[data-logs]').onclick=()=>openLogs(p);
+  }
+}
+
+async function waitUp(id, url){
+  // poll status up to ~90s
+  for(let i=0;i<45;i++){
+    await new Promise(r=>setTimeout(r,2000));
+    try{
+      const s=await api('/api/status/'+id);
+      if(s.running) return;
+    }catch(e){}
+  }
+}
+
+async function refresh(){
+  try{
+    const data=await api('/api/projects');
+    PROJS=data.projects;
+    $('#launcher-meta').textContent=`Launcher :${data.launcher_port} · ${PROJS.filter(p=>p.running).length}/${PROJS.length} running`;
+    render(PROJS);
+  }catch(e){ showErr(e.message); }
+}
+
+async function openLogs(p){
+  $('#logs').classList.add('open');
+  $('#log-title').textContent='Logs — '+p.name;
+  const d=await api('/api/logs/'+p.id+'?lines=300');
+  $('#log-body').textContent=d.log||'(empty)';
+}
+
+$('#log-close').onclick=()=>$('#logs').classList.remove('open');
+$('#refresh').onclick=refresh;
+
+$('#start-all').onclick=async()=>{
+  for(const p of PROJS){
+    if(!p.running){
+      try{ await api('/api/start?id='+p.id); }catch(e){ showErr(p.name+': '+e.message); }
+    }
+  }
+  refresh();
+};
+$('#stop-all').onclick=async()=>{
+  for(const p of PROJS){
+    if(p.running){ try{ await api('/api/stop?id='+p.id); }catch(e){ showErr(p.name+': '+e.message); } }
+  }
+  refresh();
+};
+
+function showErr(m){ $('#err').textContent='⚠ '+m; setTimeout(()=>$('#err').textContent='',6000); }
+function showBanner(m){ const b=$('#banner'); b.textContent=m; b.hidden=false; setTimeout(()=>b.hidden=true,4000); }
+
+// Poll status every 4s to keep dots fresh (e.g. when a project dies).
+refresh();
+setInterval(refresh, 4000);
+</script>
+</body>
+</html>
