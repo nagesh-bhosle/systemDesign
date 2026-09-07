@@ -6,6 +6,10 @@ target/
 .idea/
 *.iml
 .vscode/
+.cursor/
+
+# Local agent/workflow instructions (never commit)
+AGENTS.md
 
 # OS files
 .DS_Store
