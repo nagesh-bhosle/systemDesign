@@ -1,0 +1,15 @@
+Cassandra
+Cassandra overview
+
+Cassandra was created by an Indian engineer.
+It is highly capable, highly available, and fault-tolerant,
+so we will see how to use Cassandra.
+
+Partitioning and consistent hashing allow Cassandra to scale.
+Replication queues, fault tolerance, gossip, and its leaderless design
+keep the cluster decentralized, self-healing, and highly available.
+You must control how to balance consistency, correctness,
+and uptime for each request.
+
+It provides high throughput—more than 100,000 writes per second—so it
+can handle a very large number of requests.

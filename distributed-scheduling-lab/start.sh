@@ -50,9 +50,10 @@ for i in $(seq 1 30); do
     sleep 2
 done
 
+PORT_EFF="${SERVER_PORT:-8084}"
 echo ""
-echo "Step 3: Starting Spring Boot app on :8080 ..."
-echo "  Dashboard: http://localhost:8080"
+echo "Step 3: Starting Spring Boot app on :$PORT_EFF ..."
+echo "  Dashboard: http://localhost:$PORT_EFF"
 echo "  RabbitMQ management: http://localhost:15672 (lab/lab)"
 echo ""
 ./mvnw spring-boot:run

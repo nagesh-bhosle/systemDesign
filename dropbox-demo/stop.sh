@@ -16,6 +16,11 @@ fi
 echo "Stopping Dropbox Demo..."
 
 PORT="${SERVER_PORT:-8080}"
+CFG="/Users/nageshbhosle/Documents/Nagesh/projects/ds-algo/systemDesign/launcher/config.json"
+if [ -z "${SERVER_PORT:-}" ] && [ -f "$CFG" ]; then
+  SP=$(python3 -c "import json,pathlib; p=pathlib.Path('$CFG'); d=json.loads(p.read_text()); print(d.get('ports',{}).get('dropbox-demo',''))" 2>/dev/null || true)
+  [ -n "$SP" ] && PORT="$SP"
+fi
 PID=$(lsof -ti:"$PORT" 2>/dev/null || true)
 if [ -n "$PID" ]; then
     kill $PID 2>/dev/null || true

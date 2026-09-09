@@ -5,7 +5,7 @@
 # ============================================================
 
 server:
-  port: 8083
+  port: ${SERVER_PORT:8083}
 
 booking:
   default-delay-ms: 200

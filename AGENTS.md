@@ -102,6 +102,14 @@ git push origin --delete feature/<topic>
 
 ---
 
+## Local scratch projects (never commit)
+
+- `../local-projects/` (sibling of this repo, e.g. `local-projects/color-corrector/`) is **private scratch**: personal experiments, photos, and one-off tools.
+- NEVER `git add`, commit, or push anything under `local-projects/`. It lives outside this repo, and the root `.gitignore` (`ds-algo/.gitignore`) also excludes it in case the parent ever becomes a repo.
+- Launcher entries may *reference* a local project by relative path (like `color-corrector` does), but the project's files themselves must stay uncommitted.
+
+---
+
 ## Hello Interview implementations
 
 When adding or extending a system-design **demo** from Hello Interview (or similar):

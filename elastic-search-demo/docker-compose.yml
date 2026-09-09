@@ -1,0 +1,40 @@
+services:
+  es-demo-postgres:
+    image: postgis/postgis:16-3.4
+    container_name: es-demo-postgres
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_DB: esdemo
+      POSTGRES_USER: esdemo
+      POSTGRES_PASSWORD: esdemo123
+    volumes:
+      - esdemo-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U esdemo -d esdemo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  es-demo-elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.14.0
+    container_name: es-demo-elasticsearch
+    ports:
+      - "9201:9200"
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms256m -Xmx256m
+    volumes:
+      - esdemo-esdata:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -v '\"status\":\"red\"'"]
+      interval: 5s
+      timeout: 10s
+      retries: 15
+    restart: unless-stopped
+
+volumes:
+  esdemo-pgdata:
+  esdemo-esdata:

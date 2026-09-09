@@ -14,6 +14,7 @@ This repo is for learning by building: classic questions (Dropbox, Yelp, GoPuff)
 | [Design Yelp](./yelp-demo/README.md) | `yelp-demo` | Spring Boot, PostgreSQL/PostGIS, Elasticsearch | Geo + full-text search, reviews, precomputed ratings |
 | [Design a local delivery service (GoPuff)](./gopuff-demo/README.md) | `gopuff-demo` | Spring Boot, PostgreSQL, Redis | Nearby DCs, availability union, atomic orders |
 | Voice dictation (product) | `voice-dictation` | Swift, macOS | Menu-bar dictation: hotkey → transcribe → paste |
+| [Launcher](./launcher/README.md) | `launcher` | Python (stdlib) | One-click start/stop + port control for every demo |
 
 Design write-ups live next to the code (for example [`yelp-demo/Yelp.md`](./yelp-demo/Yelp.md)). Each project README covers architecture, APIs, and how to start it.
 
@@ -30,6 +31,24 @@ Design write-ups live next to the code (for example [`yelp-demo/Yelp.md`](./yelp
 - Per-chunk hash verification and DB-tracked chunk status
 - ACL-style sharing (`FileShare`) and **SSE** sync with a polling fallback
 - Soft delete of metadata; blobs retained for recovery
+
+```mermaid
+flowchart LR
+    subgraph Client["📱 Client"]
+        B[Browser / script]
+    end
+
+    subgraph API["Spring Boot API"]
+        C[DropboxCtrl] --> S[DropboxFileSvc]
+        C --> SYNC[SyncService]
+        S --> BB[BlobStorage<br/>Azure / Azurite]
+        S --> H2[(H2 metadata)]
+        SYNC --> H2
+    end
+
+    B -- "HTTP + SSE" --> C
+    H2 --- F["FileMetadata /<br/>ChunkStatus / FileShare"]
+```
 
 ```bash
 cd dropbox-demo
@@ -52,6 +71,23 @@ Details: [dropbox-demo/README.md](./dropbox-demo/README.md)
 - Precomputed `avgRating` / `numRatings`; one review per user per business
 - Named location areas so searches can use “San Francisco” without polygon math on every request
 
+```mermaid
+flowchart LR
+    subgraph App["Spring Boot"]
+        API[BusinessCtrl] --> Search[SearchService]
+        API --> Review[ReviewService]
+    end
+
+    subgraph Backends["Backends (switchable)"]
+        PG[(PostgreSQL + PostGIS)]
+        ES[(Elasticsearch)]
+    end
+
+    Search -- "search.backend" --> PG
+    Search --> ES
+    Review --> PG
+```
+
 ```bash
 cd yelp-demo
 ./start.sh                    # http://localhost:8081
@@ -65,19 +101,31 @@ Details: [yelp-demo/README.md](./yelp-demo/README.md) · design notes: [Yelp.md]
 
 **Question:** Query item availability deliverable in about an hour, and place multi-item orders without double-booking.
 
-**Implementation:** [`gopuff-demo`](gopuff-demo)
+**Implementation:** [`gopuff-demo`](./gopuff-demo)
 
 - Nearby DCs: haversine, travel-time-all, or radius-pruned travel-time (default)
 - Availability reads: Postgres or Redis cache with invalidation on order
 - Orders: serializable Postgres transaction (default) or Redis distributed locks
 - Switch strategies in `application.yml` (`gopuff.*`)
 
+```mermaid
+flowchart LR
+    subgraph App["Spring Boot"]
+        Avail[Availability API] --> Near[Nearby DCs]
+        Orders[Orders API] --> OrderSvc[OrderService]
+    end
+
+    Near --> PG[(PostgreSQL)]
+    Avail --> Redis[(Redis cache)]
+    OrderSvc -- "serializable / lock" --> PG
+```
+
 ```bash
 cd gopuff-demo
 ./start.sh                    # http://localhost:8082
 ```
 
-Details: [gopuff-demo/README.md](gopuff-demo/README.md) · design notes: [Gopuff.md](gopuff-demo/Gopuff.md)
+Details: [gopuff-demo/README.md](./gopuff-demo/README.md) · design notes: [Gopuff.md](./gopuff-demo/Gopuff.md)
 
 ---
 
@@ -103,11 +151,38 @@ Details: [voice-dictation/README.md](./voice-dictation/README.md)
 
 ---
 
+## Quick start
+
+Want to explore every demo from one dashboard? Start the [launcher](./launcher/README.md):
+
+```bash
+cd launcher
+./start.sh        # opens http://localhost:8790
+```
+
+It lists all demos, starts/stops each one (and its Docker containers), and lets you override ports when they're in use.
+
+```mermaid
+flowchart LR
+    subgraph Launcher["Launcher"]
+        UI[index.html] --> S[server.py]
+    end
+
+    S -- "start/stop + env ports" --> D1[dropbox-demo]
+    S --> D2[yelp-demo]
+    S --> D3[gopuff-demo]
+    S --> D4[...more demos]
+    D1 & D2 & D3 & D4 --> PORT[(ports in config.json)]
+```
+
+---
+
 ## Prerequisites
 
 | Project | Needs |
 |---------|--------|
 | Dropbox / Yelp / GoPuff demos | Java 21+, Docker, Maven wrapper (`./mvnw`) |
+| Launcher | Python 3 |
 | Voice dictation | macOS 14+, Xcode command line tools |
 
 ---
@@ -116,17 +191,17 @@ Details: [voice-dictation/README.md](./voice-dictation/README.md)
 
 ```
 systemDesign/
-├── dropbox-demo/       # Design Dropbox — Spring Boot + blob storage
-├── yelp-demo/          # Design Yelp — search, geo, reviews
-├── gopuff-demo/        # Design local delivery — availability + orders
-├── voice-dictation/    # macOS dictation app
+├── launcher/            # one-click start/stop dashboard for all demos
+├── dropbox-demo/        # Design Dropbox — Spring Boot + blob storage
+├── yelp-demo/           # Design Yelp — search, geo, reviews
+├── gopuff-demo/         # Design local delivery — availability + orders
+├── voice-dictation/     # macOS dictation app
 ├── CAP.txt
-├── CoreConcepts.txt
-└── AGENTS.md           # contribution / git workflow for agents
+└── CoreConcepts.txt
 ```
 
 ---
 
 ## Contributing
 
-Work on a `feature/<topic>` branch. Do not commit directly to `main`. See [AGENTS.md](./AGENTS.md) for the full workflow.
+Work on a `feature/<topic>` branch and do not commit directly to `main`. Push the branch, then ask before merging into `main`.

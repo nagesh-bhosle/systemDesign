@@ -21,6 +21,7 @@ import re
 import signal
 import socket
 import subprocess
+import tempfile
 import threading
 import time
 import webbrowser
@@ -31,9 +32,11 @@ from urllib.parse import urlparse, parse_qs
 ROOT = Path(__file__).resolve().parent.parent  # systemDesign/
 LAUNCHER_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = LAUNCHER_DIR / "config.json"
+PID_STATE_PATH = LAUNCHER_DIR / ".launcher-state.json"
 LOG_DIR = LAUNCHER_DIR / "logs"
 
 DEFAULT_LAUNCHER_PORT = 8790
+_ACTUAL_LAUNCHER_PORT: int = DEFAULT_LAUNCHER_PORT
 
 # ---------------------------------------------------------------------------
 # Project registry
@@ -68,7 +71,7 @@ PROJECTS = [
         "name": "Distributed Scheduling Lab",
         "path": "distributed-scheduling-lab",
         "dir": ROOT / "distributed-scheduling-lab",
-        "default_port": 8080,
+        "default_port": 8084,
         "port_env": "SERVER_PORT",
         "start_cmd": ["./start.sh"],
         "stop_cmd": ["./stop.sh"],
@@ -80,7 +83,7 @@ PROJECTS = [
         "name": "Dropbox-like File Storage",
         "path": "dropbox-demo",
         "dir": ROOT / "dropbox-demo",
-        "default_port": 8080,
+        "default_port": 8085,
         "port_env": "SERVER_PORT",
         "start_cmd": ["./start.sh"],
         "stop_cmd": ["./stop.sh"],
@@ -123,11 +126,36 @@ PROJECTS = [
         "docker": "PostgreSQL + PostGIS + Elasticsearch + app",
         "desc": "Yelp-style local business search with geo + full-text.",
     },
+    {
+        "id": "elastic-search-demo",
+        "name": "Elastic Search Lab",
+        "path": "elastic-search-demo",
+        "dir": ROOT / "elastic-search-demo",
+        "default_port": 8086,
+        "port_env": "SERVER_PORT",
+        "start_cmd": ["./start.sh"],
+        "stop_cmd": ["./stop.sh"],
+        "docker": "PostgreSQL + Elasticsearch + app",
+        "desc": "Text + geo search lab: ES vs Postgres benchmark, autocomplete, aggregations, interview notes.",
+    },
+    {
+        "id": "color-corrector",
+        "name": "Tattoo Cover-Up Editor",
+        "path": "local-projects/color-corrector",
+        "dir": ROOT.parent / "local-projects" / "color-corrector",
+        "default_port": 8087,
+        "port_env": "SERVER_PORT",
+        "start_cmd": ["./start.sh"],
+        "stop_cmd": ["./stop.sh"],
+        "docker": "None (static server / python3)",
+        "desc": "Sample skin tone, paint over tattoos; luminance-preserving brush, original preserved.",
+    },
 ]
 
 # Map of process markers used by stop.sh (lsof on port) — generic fallback below.
 PID_MARKER_FILES = {
     "interview-face-coach": "/tmp/ifc-server.pid",
+    "color-corrector": "/tmp/cc-server.pid",
 }
 
 
@@ -165,7 +193,33 @@ def load_config() -> dict:
 
 
 def save_config(cfg: dict) -> None:
-    CONFIG_PATH.write_text(json.dumps(cfg, indent=2))
+    tmp = CONFIG_PATH.with_suffix(".tmp")
+    try:
+        tmp.write_text(json.dumps(cfg, indent=2))
+        tmp.replace(CONFIG_PATH)
+    except Exception:
+        try:
+            CONFIG_PATH.write_text(json.dumps(cfg, indent=2))
+        except Exception:
+            pass
+
+
+def _load_state() -> dict:
+    if PID_STATE_PATH.exists():
+        try:
+            return json.loads(PID_STATE_PATH.read_text())
+        except Exception:
+            pass
+    return {"pids": {}}
+
+
+def _save_state(state: dict) -> None:
+    tmp = PID_STATE_PATH.with_suffix(".tmp")
+    try:
+        tmp.write_text(json.dumps(state, indent=2))
+        tmp.replace(PID_STATE_PATH)
+    except Exception:
+        PID_STATE_PATH.write_text(json.dumps(state, indent=2))
 
 
 def project_port(proj: dict) -> int:
@@ -229,15 +283,24 @@ def start_project(proj_id: str, port: int | None = None) -> dict:
         return {"ok": True, "already": True, "port": port,
                 "url": f"http://localhost:{port}"}
 
+    # Block concurrent start while previous start is still booting (PID alive, port not yet open)
+    existing_pid = _load_pid(proj_id)
+    if existing_pid:
+        try:
+            os.kill(int(existing_pid), 0)
+            return {"ok": False, "error": "already starting — please wait"}
+        except (ProcessLookupError, PermissionError, OSError, ValueError, TypeError):
+            _save_pid(proj_id, 0)
+
     log_path = _project_log_path(proj_id)
     env = _env_with_port(proj, port)
     log_f = open(log_path, "a")
-    log_f.write(f"\n===== start at {time.ctime()} (port {port}) =====\n")
-    log_f.flush()
-
-    # Run start.sh detached. start.sh blocks (runs the app in foreground), so we
-    # launch it in its own process group and let it keep running.
     try:
+        log_f.write(f"\n===== start at {time.ctime()} (port {port}) =====\n")
+        log_f.flush()
+
+        # Run start.sh detached. start.sh blocks (runs the app in foreground), so we
+        # launch it in its own process group and let it keep running.
         proc = subprocess.Popen(
             proj["start_cmd"],
             cwd=str(proj["dir"]),
@@ -247,8 +310,16 @@ def start_project(proj_id: str, port: int | None = None) -> dict:
             start_new_session=True,  # own process group so stop can kill the whole tree
         )
     except Exception as e:
-        log_f.close()
+        try:
+            log_f.close()
+        except Exception:
+            pass
         return {"ok": False, "error": f"failed to launch: {e}"}
+    finally:
+        try:
+            log_f.close()
+        except Exception:
+            pass
 
     # Remember PID so stop can kill the whole process group even if port changes.
     _save_pid(proj_id, proc.pid)
@@ -258,21 +329,61 @@ def start_project(proj_id: str, port: int | None = None) -> dict:
 
 
 def _save_pid(proj_id: str, pid: int) -> None:
-    cfg = load_config()
-    cfg.setdefault("pids", {})[proj_id] = int(pid)
-    save_config(cfg)
+    state = _load_state()
+    state.setdefault("pids", {})
+    if not pid:
+        state["pids"].pop(proj_id, None)
+    else:
+        state["pids"][proj_id] = int(pid)
+    _save_state(state)
 
 
 def _load_pid(proj_id: str) -> int | None:
-    cfg = load_config()
-    return cfg.get("pids", {}).get(proj_id)
+    state = _load_state()
+    return state.get("pids", {}).get(proj_id)
+
+
+def _port_pids(port: int) -> list[int]:
+    for cmd in (
+        ["lsof", "-ti", f":{port}"],
+        ["ss", "-lptn", f"sport = :{port}"],
+        ["fuser", f"{port}/tcp"],
+    ):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            if r.returncode == 0 and r.stdout.strip():
+                out = r.stdout
+                if cmd[0] == "lsof" or cmd[0] == "fuser":
+                    pids = [int(x.strip()) for x in out.strip().split() if x.strip().isdigit()]
+                else:
+                    pids = [int(x) for x in re.findall(r"\b(\d+)\b", out) if x.isdigit()]
+                if pids:
+                    return pids
+        except Exception:
+            continue
+    return []
 
 
 def _kill_process_group(pid: int) -> None:
     try:
         os.killpg(pid, signal.SIGTERM)
-        # give it a moment, then force
-        time.sleep(1.0)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
+            return
+    deadline = time.time() + 4.0
+    while time.time() < deadline:
+        try:
+            os.killpg(pid, 0)
+            time.sleep(0.25)
+        except (ProcessLookupError, PermissionError, OSError):
+            return
+        try:
+            os.kill(pid, 0)
+        except (ProcessLookupError, PermissionError, OSError):
+            return
+    try:
         os.killpg(pid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError, OSError):
         try:
@@ -287,10 +398,12 @@ def stop_project(proj_id: str) -> dict:
         return {"ok": False, "error": "unknown project"}
 
     results = []
+    port = project_port(proj)
 
-    # 1) Try the project's stop.sh (handles docker compose down + app kill).
+    # 1) Try the project's stop.sh with the CURRENT port so hardcoded-port stop.sh still works
     try:
-        r = subprocess.run(proj["stop_cmd"], cwd=str(proj["dir"]),
+        env = _env_with_port(proj, port)
+        r = subprocess.run(proj["stop_cmd"], cwd=str(proj["dir"]), env=env,
                            capture_output=True, text=True, timeout=60)
         results.append(("stop.sh", r.returncode, r.stdout[-300:]))
     except Exception as e:
@@ -302,15 +415,26 @@ def stop_project(proj_id: str) -> dict:
         _kill_process_group(pid)
         _save_pid(proj_id, 0)
 
-    # 3) Fallback: kill anything on the configured port.
-    port = project_port(proj)
-    if port_in_use(port):
-        try:
-            subprocess.run(["bash", "-c",
-                            "lsof -ti :%d | xargs kill -9 2>/dev/null" % port],
-                           timeout=15)
-        except Exception:
-            pass
+    # 3) Fallback: kill anything on the configured port + also the default port if different
+    ports_to_kill = {int(port)}
+    try:
+        ports_to_kill.add(int(proj["default_port"]))
+    except Exception:
+        pass
+    for kp in ports_to_kill:
+        pids = _port_pids(kp)
+        for pid2 in pids:
+            try:
+                os.kill(pid2, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+        if not pids and port_in_use(kp):
+            try:
+                subprocess.run(["bash", "-c",
+                                "lsof -ti :%d | xargs kill -9 2>/dev/null" % kp],
+                               timeout=5)
+            except Exception:
+                pass
 
     # 4) Marker files (interview-face-coach).
     if proj_id in PID_MARKER_FILES:
@@ -336,7 +460,21 @@ def stop_project(proj_id: str) -> dict:
 
 def status_project(proj: dict) -> dict:
     port = project_port(proj)
+    stored_pid = _load_pid(proj["id"])
     running = is_running(proj)
+    starting = False
+    if stored_pid and not running:
+        try:
+            os.kill(int(stored_pid), 0)
+            starting = True
+        except (ProcessLookupError, PermissionError, OSError, ValueError, TypeError):
+            _save_pid(proj["id"], 0)
+            stored_pid = None
+    elif stored_pid and running:
+        try:
+            os.kill(int(stored_pid), 0)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
     return {
         "id": proj["id"],
         "name": proj["name"],
@@ -344,6 +482,7 @@ def status_project(proj: dict) -> dict:
         "port": port,
         "default_port": proj["default_port"],
         "running": running,
+        "starting": starting,
         "url": f"http://localhost:{port}",
         "docker": proj["docker"],
         "desc": proj["desc"],
@@ -353,7 +492,7 @@ def status_project(proj: dict) -> dict:
 
 def list_projects() -> dict:
     return {"projects": [status_project(p) for p in PROJECTS],
-            "launcher_port": DEFAULT_LAUNCHER_PORT}
+            "launcher_port": _ACTUAL_LAUNCHER_PORT}
 
 
 # ---------------------------------------------------------------------------
@@ -364,6 +503,7 @@ def send_json(handler: BaseHTTPRequestHandler, obj: dict, code: int = 200):
     handler.send_response(code)
     handler.send_header("Content-Type", "application/json")
     handler.send_header("Content-Length", str(len(body)))
+    handler.send_header("Cache-Control", "no-store")
     handler.end_headers()
     handler.wfile.write(body)
 
@@ -377,6 +517,8 @@ def serve_file(handler: BaseHTTPRequestHandler, path: Path, content_type: str):
     handler.send_response(200)
     handler.send_header("Content-Type", content_type)
     handler.send_header("Content-Length", str(len(body)))
+    handler.send_header("Cache-Control", "no-store")
+    handler.send_header("X-Content-Type-Options", "nosniff")
     handler.end_headers()
     handler.wfile.write(body)
 
@@ -442,6 +584,8 @@ class LauncherHandler(BaseHTTPRequestHandler):
             port_raw = q.get("port", [""])[0]
             try:
                 port = int(port_raw)
+                if not (1 <= port <= 65535):
+                    raise ValueError("range")
             except ValueError:
                 send_json(self, {"ok": False, "error": "invalid port"}, 400)
                 return
@@ -449,15 +593,13 @@ class LauncherHandler(BaseHTTPRequestHandler):
             if not proj:
                 send_json(self, {"ok": False, "error": "unknown"}, 404)
                 return
+            # Only block if another *launcher* project is configured to that port and running.
+            # Free ports + external occupancy are allowed to be saved — Start will still
+            # validate liveness/conflict, but Save itself should not gate on `lsof`.
             other = _other_project_using_port(pid, port)
             if other:
                 send_json(self, {"ok": False,
-                                 "error": f"port {port} is already in use by '{other}' — pick a different port"},
-                          409)
-                return
-            if port_in_use(port):
-                send_json(self, {"ok": False,
-                                 "error": f"port {port} is already in use by another process — pick a different port"},
+                                 "error": f"port {port} is already assigned to '{other}' — pick a different port"},
                           409)
                 return
             set_project_port(pid, port)
@@ -473,6 +615,8 @@ def main():
     ap.add_argument("--no-browser", action="store_true")
     args = ap.parse_args()
 
+    global _ACTUAL_LAUNCHER_PORT
+    _ACTUAL_LAUNCHER_PORT = int(args.port)
     LOG_DIR.mkdir(exist_ok=True)
     srv = ThreadingHTTPServer((args.host, args.port), LauncherHandler)
     print(f"\n  🚀 systemDesign launcher running at:  http://localhost:{args.port}\n"

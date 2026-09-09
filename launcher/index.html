@@ -100,24 +100,41 @@ pre{flex:1;margin:0;padding:14px 16px;overflow:auto;font-size:.78rem;
 <script>
 const $=s=>document.querySelector(s);
 let PROJS=[];
+let startingIds=new Set();
+let pendingOps=new Set();
+let errTimer=null, bannerTimer=null;
 
 async function api(path, opts){
-  const r=await fetch(path, opts);
+  const r=await fetch(path, {cache:'no-store', ...opts, headers:{'Cache-Control':'no-cache', ...(opts&&opts.headers||{})}});
   if(!r.ok){ let m=r.statusText; try{const j=await r.json(); m=j.error||m;}catch(e){} throw new Error(m); }
-  return r.json();
+  const j=await r.json();
+  if(j && j.ok===false && j.error) throw new Error(j.error);
+  return j;
 }
 
 function esc(s){const d=document.createElement('div');d.textContent=s??'';return d.innerHTML;}
 
+let editingId=null;
+let editingVal='';
+function attachInputGuards(input, id){
+  input.addEventListener('focus',()=>{ editingId=id; editingVal=input.value; });
+  input.addEventListener('input',()=>{ if(editingId===id) editingVal=input.value; });
+  input.addEventListener('blur',()=>{ if(editingId===id) editingId=null; });
+}
 function render(projs){
   const cards=$('#cards'); cards.innerHTML='';
   for(const p of projs){
+    const isStarting = p.starting || startingIds.has(p.id);
+    const state = p.running ? 'running' : isStarting ? 'starting' : 'stopped';
+    const dotClass = state==='running' ? 'up' : state==='starting' ? 'starting' : 'down';
+    const statusText = state==='running' ? 'RUNNING' : state==='starting' ? 'starting…' : 'stopped';
+    const statusColor = state==='running' ? 'var(--green)' : state==='starting' ? 'var(--amber)' : 'var(--muted)';
+    const busy = pendingOps.has(p.id);
     const card=document.createElement('div'); card.className='card';
     card.innerHTML=`
       <div class="status-row">
-        <span class="dot ${p.running?'up':'down'}" data-dot></span>
+        <span class="dot ${dotClass}" data-dot></span>
         <h3 style="margin:0">${esc(p.name)}</h3>
-        <span class="dot ${p.running?'up':'down'}"></span>
       </div>
       <p class="desc">${esc(p.desc)}</p>
       <div class="meta">
@@ -125,7 +142,7 @@ function render(projs){
         <span>🐳 ${esc(p.docker)}</span>
       </div>
       <div class="status-row"><span>Status:</span>
-        <b data-status style="color:${p.running?'var(--green)':'var(--muted)'}">${p.running?'RUNNING':'stopped'}</b>
+        <b data-status style="color:${statusColor}">${statusText}</b>
       </div>
       <div class="url" data-url>${p.running?`<a href="${p.url}" target="_blank">${p.url}</a>`:'—'}</div>
       <div class="port-line">
@@ -145,37 +162,48 @@ function render(projs){
     const stopBtn=card.querySelector('[data-stop]');
     const saveBtn=card.querySelector('[data-save]');
     const urlEl=card.querySelector('[data-url]');
-    const statusEl=card.querySelector('[data-status]');
-    const dotEl=card.querySelector('[data-dot]');
     const input=card.querySelector('input');
+    if(editingId===p.id) input.value=editingVal;
+    attachInputGuards(input, p.id);
 
-    const setStarting=()=>{
-      dotEl.className='dot starting';
-      statusEl.textContent='starting…'; statusEl.style.color='var(--amber)';
-      startBtn.disabled=true; stopBtn.disabled=true;
-    };
+    startBtn.disabled = busy || p.running;
+    stopBtn.disabled = busy || (!p.running && !isStarting);
+    saveBtn.disabled = busy;
 
     startBtn.onclick=async()=>{
-      setStarting();
+      if(pendingOps.has(p.id)) return;
+      pendingOps.add(p.id); startingIds.add(p.id); render(PROJS);
       try{
         const port=parseInt(input.value,10);
-        const r=await api('/api/start?id='+p.id+(port?'&port='+port:''));
-        if(r.error) throw new Error(r.error);
-        await waitUp(p.id, r.url);
-      }catch(e){ showErr(e.message); }
-      refresh();
+        const r=await api('/api/start?id='+p.id+(port?'&port='+port:''),{method:'POST'});
+        if(r.already){ showBanner(p.name+': already running on :'+r.port); startingIds.delete(p.id); }
+        else { await waitUp(p.id, r.url); }
+      }catch(e){ startingIds.delete(p.id); showErr(e.message); }
+      pendingOps.delete(p.id);
+      await refresh();
+      startingIds.delete(p.id);
+      render(PROJS);
     };
 
     stopBtn.onclick=async()=>{
-      try{ await api('/api/stop?id='+p.id); }catch(e){ showErr(e.message); }
-      refresh();
+      if(pendingOps.has(p.id)) return;
+      pendingOps.add(p.id); render(PROJS);
+      try{
+        const r=await api('/api/stop?id='+p.id,{method:'POST'});
+        startingIds.delete(p.id);
+        if(r.still_up) showErr(p.name+': still running — check logs');
+        else showBanner(p.name+': stopped');
+      }catch(e){ showErr(e.message); }
+      pendingOps.delete(p.id);
+      await new Promise(r=>setTimeout(r,400));
+      await refresh();
     };
 
     saveBtn.onclick=async()=>{
       try{
         const r=await api('/api/port?id='+p.id+'&port='+parseInt(input.value,10),{method:'POST'});
-        if(r.error) throw new Error(r.error);
         showBanner(p.name+': port saved to '+r.port);
+        await refresh();
       }catch(e){ showErr(e.message); }
     };
 
@@ -186,20 +214,29 @@ function render(projs){
 }
 
 async function waitUp(id, url){
-  // poll status up to ~90s
   for(let i=0;i<45;i++){
     await new Promise(r=>setTimeout(r,2000));
     try{
       const s=await api('/api/status/'+id);
       if(s.running) return;
+      if(!s.starting && !startingIds.has(id)) return;
     }catch(e){}
   }
+  showErr('Timed out waiting for service to open port — check logs');
 }
 
 async function refresh(){
   try{
     const data=await api('/api/projects');
     PROJS=data.projects;
+    for(const p of PROJS){
+      if(p.running) startingIds.delete(p.id);
+      if(p.starting) startingIds.add(p.id);
+      if(!p.running && !p.starting) {
+        // stale starting cleared by server; keep client set in sync
+        if(!pendingOps.has(p.id)) startingIds.delete(p.id);
+      }
+    }
     $('#launcher-meta').textContent=`Launcher :${data.launcher_port} · ${PROJS.filter(p=>p.running).length}/${PROJS.length} running`;
     render(PROJS);
   }catch(e){ showErr(e.message); }
@@ -208,34 +245,50 @@ async function refresh(){
 async function openLogs(p){
   $('#logs').classList.add('open');
   $('#log-title').textContent='Logs — '+p.name;
-  const d=await api('/api/logs/'+p.id+'?lines=300');
-  $('#log-body').textContent=d.log||'(empty)';
+  $('#log-body').textContent='loading…';
+  try{
+    const d=await api('/api/logs/'+p.id+'?lines=300');
+    $('#log-body').textContent=d.log||'(empty)';
+  }catch(e){ $('#log-body').textContent='⚠ '+e.message; }
 }
 
 $('#log-close').onclick=()=>$('#logs').classList.remove('open');
+$('#logs').addEventListener('click',e=>{ if(e.target.id==='logs') $('#logs').classList.remove('open'); });
 $('#refresh').onclick=refresh;
 
 $('#start-all').onclick=async()=>{
   for(const p of PROJS){
-    if(!p.running){
-      try{ await api('/api/start?id='+p.id); }catch(e){ showErr(p.name+': '+e.message); }
+    if(!p.running && !startingIds.has(p.id) && !pendingOps.has(p.id)){
+      pendingOps.add(p.id); startingIds.add(p.id);
+      render(PROJS);
+      try{ await api('/api/start?id='+p.id,{method:'POST'}); }catch(e){ showErr(p.name+': '+e.message); startingIds.delete(p.id); }
+      pendingOps.delete(p.id);
     }
   }
-  refresh();
+  await refresh();
+  // after firing all, wait a moment then poll again
+  await new Promise(r=>setTimeout(r,1500));
+  await refresh();
 };
 $('#stop-all').onclick=async()=>{
-  for(const p of PROJS){
-    if(p.running){ try{ await api('/api/stop?id='+p.id); }catch(e){ showErr(p.name+': '+e.message); } }
+  const toStop=PROJS.filter(p=>p.running||p.starting||startingIds.has(p.id));
+  for(const p of toStop){
+    if(pendingOps.has(p.id)) continue;
+    pendingOps.add(p.id); render(PROJS);
+    try{ await api('/api/stop?id='+p.id,{method:'POST'}); startingIds.delete(p.id); }catch(e){ showErr(p.name+': '+e.message); }
+    pendingOps.delete(p.id);
   }
-  refresh();
+  await refresh();
 };
 
-function showErr(m){ $('#err').textContent='⚠ '+m; setTimeout(()=>$('#err').textContent='',6000); }
-function showBanner(m){ const b=$('#banner'); b.textContent=m; b.hidden=false; setTimeout(()=>b.hidden=true,4000); }
+function showErr(m){ $('#err').textContent='⚠ '+m; clearTimeout(errTimer); errTimer=setTimeout(()=>$('#err').textContent='',7000); }
+function showBanner(m){ const b=$('#banner'); b.textContent=m; b.hidden=false; clearTimeout(bannerTimer); bannerTimer=setTimeout(()=>b.hidden=true,4000); }
 
-// Poll status every 4s to keep dots fresh (e.g. when a project dies).
 refresh();
-setInterval(refresh, 4000);
+setInterval(()=>{ if(pendingOps.size===0) refresh(); else {
+  // still poll but don't clobber pending ops more than needed — light status poll to keep starting state fresh
+  refresh();
+}}, 4000);
 </script>
 </body>
 </html>

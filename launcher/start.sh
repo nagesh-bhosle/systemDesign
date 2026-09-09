@@ -5,9 +5,18 @@ cd "$(dirname "$0")"
 
 PORT="${LAUNCHER_PORT:-8790}"
 
-if lsof -ti :"$PORT" >/dev/null 2>&1; then
-  echo "Launcher already running on :$PORT — open http://localhost:$PORT"
-  exit 0
+mkdir -p logs
+
+if command -v lsof >/dev/null 2>&1; then
+  if lsof -ti :"$PORT" >/dev/null 2>&1; then
+    echo "Launcher already running on :$PORT — open http://localhost:$PORT"
+    exit 0
+  fi
+else
+  if (echo >/dev/tcp/127.0.0.1/"$PORT") >/dev/null 2>&1; then
+    echo "Launcher already running on :$PORT — open http://localhost:$PORT"
+    exit 0
+  fi
 fi
 
 echo "Starting systemDesign launcher on http://localhost:$PORT ..."
@@ -16,7 +25,7 @@ echo $! > .launcher.pid
 
 # wait for it to come up
 for i in $(seq 1 20); do
-  if curl -s -o /dev/null "http://localhost:$PORT/api/projects"; then
+  if curl -sf -o /dev/null "http://localhost:$PORT/api/projects" 2>/dev/null; then
     echo "✅ Launcher ready:  http://localhost:$PORT"
     # open the dashboard
     (command -v open >/dev/null && open "http://localhost:$PORT") || true
