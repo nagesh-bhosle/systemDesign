@@ -2,6 +2,8 @@
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PORT="${PORT:-5173}"
+# Launcher also sends SERVER_PORT; respect it when explicitly set
+if [ -n "${SERVER_PORT:-}" ]; then PORT="$SERVER_PORT"; fi
 cd "$SCRIPT_DIR/app"
 
 if lsof -i :"$PORT" >/dev/null 2>&1; then
@@ -9,7 +11,7 @@ if lsof -i :"$PORT" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "Starting Interview Face Coach on http://localhost:$PORT"
+echo "Starting Interview Face Coach on http://localhost:$PORT (PORT=$PORT, SERVER_PORT=${SERVER_PORT:-unset})"
 echo "Press Ctrl+C to stop — or run ./stop.sh in another shell"
 # serve static app; no deps
 if command -v python3 >/dev/null 2>&1; then

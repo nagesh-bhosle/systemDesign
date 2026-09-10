@@ -1,0 +1,22 @@
+1. Dont check in this folder of ideas to git remote.
+
+
+1. Iron Man Jarvis:
+    A utility where I can give my input in speech and get output in audio. Same concept like iron man.
+    I will run project/it is running in background. It will wake up  on my command same like hey siri in apple or alexa. I has access to my system,internet files, mcps and all.
+    It is same like copilot harness, claude code or codex. but in speech format.I will provide some examples to you.
+    It should be self learning it should learn from its mistakes. I will add some clips of Iron man move as well to show how it works.
+
+2. Technical Interviwer:
+    It should take my interview of system design, leetcode,java, Input my voice,video and output is cunter questions and assesment.
+
+3. Automated Trading Bot:
+    Already I have document of it.
+
+4. DS visual Language:
+
+5. Resume Creation Bot:
+
+6. Voice Diction:
+
+7.

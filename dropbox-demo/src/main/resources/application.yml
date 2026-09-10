@@ -4,7 +4,7 @@
 
 # --- Server ---
 server:
-  port: 8080
+  port: ${SERVER_PORT:8085}
   tomcat:
     max-swallow-size: -1          # Don't limit request body swallowing
     max-connections: 100

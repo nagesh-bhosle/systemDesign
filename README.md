@@ -14,6 +14,7 @@ This repo is for learning by building: classic questions (Dropbox, Yelp, GoPuff)
 | [Design Yelp](./yelp-demo/README.md) | `yelp-demo` | Spring Boot, PostgreSQL/PostGIS, Elasticsearch | Geo + full-text search, reviews, precomputed ratings |
 | [Design a local delivery service (GoPuff)](./gopuff-demo/README.md) | `gopuff-demo` | Spring Boot, PostgreSQL, Redis | Nearby DCs, availability union, atomic orders |
 | Voice dictation (product) | `voice-dictation` | Swift, macOS | Menu-bar dictation: hotkey → transcribe → paste |
+| [Launcher](./launcher/README.md) | `launcher` | Python (stdlib) | One-click start/stop + port control for every demo |
 
 Design write-ups live next to the code (for example [`yelp-demo/Yelp.md`](./yelp-demo/Yelp.md)). Each project README covers architecture, APIs, and how to start it.
 
@@ -150,11 +151,38 @@ Details: [voice-dictation/README.md](./voice-dictation/README.md)
 
 ---
 
+## Quick start
+
+Want to explore every demo from one dashboard? Start the [launcher](./launcher/README.md):
+
+```bash
+cd launcher
+./start.sh        # opens http://localhost:8790
+```
+
+It lists all demos, starts/stops each one (and its Docker containers), and lets you override ports when they're in use.
+
+```mermaid
+flowchart LR
+    subgraph Launcher["Launcher"]
+        UI[index.html] --> S[server.py]
+    end
+
+    S -- "start/stop + env ports" --> D1[dropbox-demo]
+    S --> D2[yelp-demo]
+    S --> D3[gopuff-demo]
+    S --> D4[...more demos]
+    D1 & D2 & D3 & D4 --> PORT[(ports in config.json)]
+```
+
+---
+
 ## Prerequisites
 
 | Project | Needs |
 |---------|--------|
 | Dropbox / Yelp / GoPuff demos | Java 21+, Docker, Maven wrapper (`./mvnw`) |
+| Launcher | Python 3 |
 | Voice dictation | macOS 14+, Xcode command line tools |
 
 ---
@@ -163,6 +191,7 @@ Details: [voice-dictation/README.md](./voice-dictation/README.md)
 
 ```
 systemDesign/
+├── launcher/            # one-click start/stop dashboard for all demos
 ├── dropbox-demo/        # Design Dropbox — Spring Boot + blob storage
 ├── yelp-demo/           # Design Yelp — search, geo, reviews
 ├── gopuff-demo/         # Design local delivery — availability + orders

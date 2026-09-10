@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 PORT="${PORT:-5173}"
+if [ -n "${SERVER_PORT:-}" ]; then PORT="$SERVER_PORT"; fi
 if [ -f /tmp/ifc-server.pid ]; then
   PID=$(cat /tmp/ifc-server.pid)
   kill "$PID" 2>/dev/null && echo "Stopped $PID" || echo "No server at $PID"

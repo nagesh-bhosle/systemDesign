@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Back-of-Envelope Calculations — System Design Cheat Sheet</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-card: #161b22;
+    --bg-row-alt: #1c2129;
+    --border: #2d333b;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --teal: #3fb9a8;
+    --amber: #d29922;
+    --purple: #bc8cff;
+    --mono: "SF Mono", "Cascadia Code", Consolas, "JetBrains Mono", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; scroll-padding-top: 64px; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.55;
+    padding-bottom: 80px;
+  }
+
+  /* ---------- header ---------- */
+  header {
+    text-align: center;
+    padding: 56px 20px 40px;
+    background: linear-gradient(180deg, #10161f 0%, var(--bg) 100%);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 2rem; letter-spacing: -0.5px; }
+  header h1 span { color: var(--accent); }
+  header p { color: var(--text-dim); margin-top: 8px; max-width: 640px; margin-left: auto; margin-right: auto; }
+
+  /* ---------- nav ---------- */
+  nav {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(13, 17, 23, 0.92);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    white-space: nowrap;
+    padding: 0 16px;
+  }
+  nav a {
+    display: inline-block;
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 0.82rem;
+    padding: 12px 10px;
+    border-bottom: 2px solid transparent;
+  }
+  nav a:hover { color: var(--text); border-bottom-color: var(--accent); }
+
+  /* ---------- layout ---------- */
+  main { max-width: 1000px; margin: 0 auto; padding: 0 20px; }
+  section { margin-top: 48px; }
+  h2 {
+    font-size: 1.25rem;
+    margin-bottom: 6px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  h2 .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 8px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    color: var(--accent); font-size: 0.85rem; font-family: var(--mono);
+    flex-shrink: 0;
+  }
+  .sub { color: var(--text-dim); font-size: 0.88rem; margin-bottom: 16px; }
+
+  /* ---------- tables ---------- */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; background: var(--bg-card); }
+  th {
+    text-align: left; padding: 10px 14px;
+    background: #11161d; color: var(--accent);
+    font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em;
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 45px;
+  }
+  td { padding: 9px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:nth-child(even) { background: var(--bg-row-alt); }
+  tbody tr:hover { background: #22272e; }
+  td.v { font-family: var(--mono); color: var(--teal); white-space: nowrap; }
+  td.hook { color: var(--text-dim); font-style: italic; }
+  td.f { font-family: var(--mono); color: var(--purple); }
+  td.op { color: var(--text); }
+  td.sz { font-family: var(--mono); color: var(--amber); white-space: nowrap; }
+
+  /* ---------- callouts ---------- */
+  .callout {
+    margin-top: 14px; padding: 12px 16px;
+    border-left: 3px solid var(--amber);
+    background: var(--bg-card); border-radius: 0 8px 8px 0;
+    font-size: 0.88rem; color: var(--text-dim);
+  }
+  .callout b { color: var(--text); }
+  .callout.teal { border-left-color: var(--teal); }
+  .callout code, .formula code {
+    font-family: var(--mono); font-size: 0.85em;
+    background: #21262d; padding: 2px 6px; border-radius: 5px; color: var(--teal);
+  }
+
+  /* ---------- formula grid ---------- */
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+    gap: 12px; margin-top: 16px;
+  }
+  .formula {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px;
+  }
+  .formula .name { color: var(--text-dim); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
+  .formula .expr { font-family: var(--mono); color: var(--teal); font-size: 0.88rem; margin-top: 6px; }
+
+  footer {
+    max-width: 1000px; margin: 56px auto 0; padding: 20px;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 0.85rem; text-align: center;
+  }
+
+  @media print {
+    body { background: #fff; color: #111; }
+    nav, header { display: none; }
+    .table-wrap, table, td, th { border-color: #ccc; background: #fff; color: #111; }
+    th { color: #111; position: static; }
+    td.v, td.f, .formula .expr { color: #0b6; }
+    td.hook, .sub, .callout, footer { color: #444; }
+    section { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Back-of-Envelope <span>Calculations</span></h1>
+  <p>System design interview cheat sheet — the numbers you should know (or derive in ~5 seconds) without a calculator.</p>
+</header>
+
+<nav>
+  <a href="#s1">Powers &amp; Time</a>
+  <a href="#s2">Latency</a>
+  <a href="#s3">Availability</a>
+  <a href="#s4">QPS Math</a>
+  <a href="#s5">Data Sizes</a>
+  <a href="#s6">IDs &amp; Hashing</a>
+  <a href="#s7">Media Bandwidth</a>
+  <a href="#s8">Formulas</a>
+  <a href="#s9">Tech Capacities</a>
+  <a href="#s10">Worked Example</a>
+</nav>
+
+<main>
+
+  <section id="s1">
+    <h2><span class="num">01</span> Number sense — powers and time</h2>
+    <p class="sub">The building blocks for every other estimate.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Quantity</th><th>Value</th><th>Memory hook</th></tr></thead>
+      <tbody>
+        <tr><td class="op">2<sup>10</sup> / 2<sup>20</sup> / 2<sup>30</sup> / 2<sup>40</sup></td><td class="v">1K / 1M / 1B / 1T</td><td class="hook">10 bits per "×1000"</td></tr>
+        <tr><td class="op">2<sup>32</sup></td><td class="v">4.29 × 10<sup>9</sup></td><td class="hook">uint32, IPv4 address space</td></tr>
+        <tr><td class="op">2<sup>63</sup></td><td class="v">9.2 × 10<sup>18</sup></td><td class="hook">Java <code>long</code> max</td></tr>
+        <tr><td class="op">1 day</td><td class="v">86,400 s</td><td class="hook">≈ 10<sup>5</sup> s</td></tr>
+        <tr><td class="op">1 year</td><td class="v">3.15 × 10<sup>7</sup> s</td><td class="hook">π × 10<sup>7</sup> s</td></tr>
+        <tr><td class="op">1 ms of fiber</td><td class="v">~200 km</td><td class="hook">1000 km one-way ≈ 5 ms, RTT ≈ 10 ms</td></tr>
+        <tr><td class="op">Unix 32-bit epoch overflow</td><td class="v">2<sup>31</sup> s ≈ 68 yr</td><td class="hook">1970 + 68 = Jan 2038</td></tr>
+        <tr><td class="op">Snowflake 41-bit millis</td><td class="v">~69.7 years</td><td class="hook">why Discord's IDs are safe for decades</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="s2">
+    <h2><span class="num">02</span> Latency numbers every programmer should know</h2>
+    <p class="sub">Canonical Jeff Dean table — order of magnitude matters, not exact digits.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Operation</th><th>Time</th></tr></thead>
+      <tbody>
+        <tr><td class="op">L1 cache reference</td><td class="v">0.5 ns</td></tr>
+        <tr><td class="op">Branch mispredict</td><td class="v">5 ns</td></tr>
+        <tr><td class="op">L2 cache reference</td><td class="v">7 ns</td></tr>
+        <tr><td class="op">Mutex lock/unlock</td><td class="v">25 ns</td></tr>
+        <tr><td class="op">Main memory reference</td><td class="v">100 ns</td></tr>
+        <tr><td class="op">Compress 1 KB with Snappy/Zippy</td><td class="v">3 µs</td></tr>
+        <tr><td class="op">Send 1 KB over 1 Gbps network</td><td class="v">10 µs</td></tr>
+        <tr><td class="op">Read 4 KB randomly from SSD</td><td class="v">150 µs</td></tr>
+        <tr><td class="op">Read 1 MB sequentially from memory</td><td class="v">250 µs</td></tr>
+        <tr><td class="op">Round trip within same datacenter</td><td class="v">500 µs</td></tr>
+        <tr><td class="op">Read 1 MB sequentially from SSD</td><td class="v">1 ms</td></tr>
+        <tr><td class="op">Disk seek (HDD)</td><td class="v">10 ms</td></tr>
+        <tr><td class="op">Read 1 MB sequentially from HDD</td><td class="v">20 ms</td></tr>
+        <tr><td class="op">Packet CA → Netherlands → CA</td><td class="v">150 ms</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout teal"><b>Takeaway chain:</b> memory is ~100× faster than SSD, SSD is ~10–20× faster than disk, and internet RTT is ~150 ms regardless of everything else.</div>
+  </section>
+
+  <section id="s3">
+    <h2><span class="num">03</span> Availability — the "nines"</h2>
+    <p class="sub">Computed for a 365-day year / 30-day month.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Availability</th><th>Downtime / year</th><th>Downtime / month</th></tr></thead>
+      <tbody>
+        <tr><td class="v">99% ("2 nines")</td><td class="v">3.65 days</td><td class="v">7.2 hours</td></tr>
+        <tr><td class="v">99.9% ("3 nines")</td><td class="v">8.76 hours</td><td class="v">43.2 min</td></tr>
+        <tr><td class="v">99.99% ("4 nines")</td><td class="v">52.6 min</td><td class="v">4.3 min</td></tr>
+        <tr><td class="v">99.999% ("5 nines")</td><td class="v">5.26 min</td><td class="v">26 s</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout"><b>Interview rule:</b> each extra "9" costs ~10× more engineering effort — anything past 4 nines usually needs redundancy at every layer.</div>
+  </section>
+
+  <section id="s4">
+    <h2><span class="num">04</span> Traffic conversions (QPS math)</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Conversion</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td class="op">QPS</td><td class="f">requests/day ÷ 86,400</td></tr>
+        <tr><td class="op">100K / day</td><td class="v">~1.2 QPS</td></tr>
+        <tr><td class="op">1M / day</td><td class="v">~12 QPS</td></tr>
+        <tr><td class="op">100M / day</td><td class="v">~1,200 QPS</td></tr>
+        <tr><td class="op">1B / day</td><td class="v">~12,000 QPS</td></tr>
+        <tr><td class="op">Peak QPS</td><td class="v">~2–3 × average</td></tr>
+        <tr><td class="op">1 Gbps</td><td class="v">125 MB/s</td></tr>
+        <tr><td class="op">1 Mbps sustained for 1 hour</td><td class="v">450 MB</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="s5">
+    <h2><span class="num">05</span> Size of common data</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Item</th><th>Size</th></tr></thead>
+      <tbody>
+        <tr><td class="op">ASCII char / Java <code>int</code> / <code>long</code></td><td class="sz">1 B / 4 B / 8 B</td></tr>
+        <tr><td class="op">Username / email</td><td class="sz">~20 B / ~50 B</td></tr>
+        <tr><td class="op">Tweet (280 chars) / short chat message</td><td class="sz">~300 B</td></tr>
+        <tr><td class="op">Typical DB row / small JSON API response</td><td class="sz">100 B–1 KB / 0.5–2 KB</td></tr>
+        <tr><td class="op">UUID</td><td class="sz">16 B raw (36 chars as string)</td></tr>
+        <tr><td class="op">Snowflake ID</td><td class="sz">8 B raw (19 digits as string)</td></tr>
+        <tr><td class="op">MD5 / SHA-256</td><td class="sz">16 B (32 hex) / 32 B (64 hex)</td></tr>
+        <tr><td class="op">Thumbnail / standard image / high-res photo</td><td class="sz">10–20 KB / 100 KB–1 MB / 2–5 MB</td></tr>
+        <tr><td class="op">Median web page (with assets)</td><td class="sz">~2 MB</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="s6">
+    <h2><span class="num">06</span> IDs, encoding and hashing</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Tool</th><th>Key number</th></tr></thead>
+      <tbody>
+        <tr><td class="op">Base62, 6 chars</td><td class="v">~5.7 × 10<sup>10</sup> combos</td></tr>
+        <tr><td class="op">Base62, 7 chars</td><td class="v">~3.5 × 10<sup>12</sup></td><td class="hook">enough for a URL shortener for decades</td></tr>
+        <tr><td class="op">Base64 overhead</td><td class="v">×1.33</td><td class="hook">4 chars per 3 bytes; hex = ×2</td></tr>
+        <tr><td class="op">Bloom filter @1% FPR</td><td class="v">~10 bits/entry</td><td class="hook">100M URLs ≈ 120 MB</td></tr>
+        <tr><td class="op">UUID v4</td><td class="v">50% collision after ~2.7 × 10<sup>18</sup></td><td class="hook">effectively never</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="s7">
+    <h2><span class="num">07</span> Media bandwidth math</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Content</th><th>Bitrate</th><th>Per hour</th></tr></thead>
+      <tbody>
+        <tr><td class="op">MP3 128 kbps</td><td class="v">0.128 Mbps</td><td class="v">~58 MB</td></tr>
+        <tr><td class="op">Video 720p</td><td class="v">~3 Mbps</td><td class="v">~1.35 GB</td></tr>
+        <tr><td class="op">Video 1080p</td><td class="v">~5 Mbps</td><td class="v">~2.25 GB</td></tr>
+        <tr><td class="op">Video 4K</td><td class="v">~20 Mbps</td><td class="v">~9 GB</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout teal"><b>Master formula:</b> <code>GB/hour = bitrate(Mbps) × 3600 ÷ 8 ÷ 1000</code> — or just remember <b>1 Mbps = 450 MB/hour</b>.</div>
+  </section>
+
+  <section id="s8">
+    <h2><span class="num">08</span> The interview recipe — the only formulas to memorize</h2>
+    <div class="grid">
+      <div class="formula"><div class="name">Avg QPS</div><div class="expr">DAU × actions-per-user-per-day ÷ 86,400</div></div>
+      <div class="formula"><div class="name">Peak QPS</div><div class="expr">~2 × avg</div></div>
+      <div class="formula"><div class="name">Storage / day</div><div class="expr">write-QPS × 86,400 × avg-record-size</div></div>
+      <div class="formula"><div class="name">Storage (5 years)</div><div class="expr">storage/day × 1,825 → ×3 (replication) → ÷2–5 (compression)</div></div>
+      <div class="formula"><div class="name">Egress bandwidth</div><div class="expr">read-QPS × avg-response-size × 8 (bits)</div></div>
+      <div class="formula"><div class="name">DB read QPS after cache</div><div class="expr">read-QPS × (1 − hit-rate), plan 80–90% hits</div></div>
+      <div class="formula"><div class="name">Cache memory</div><div class="expr">entries × (key + value + ~50–100 B overhead), ×1.5 headroom</div></div>
+      <div class="formula"><div class="name">Server count</div><div class="expr">QPS ÷ per-server-QPS, +30% headroom</div></div>
+      <div class="formula"><div class="name">Typical read : write</div><div class="expr">social/chat is read-heavy, ~20:1 to 100:1</div></div>
+    </div>
+  </section>
+
+  <section id="s9">
+    <h2><span class="num">09</span> Order-of-magnitude capacities per technology</h2>
+    <p class="sub">Ballparks for planning — real numbers vary with hardware and tuning.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Technology</th><th>Ballpark</th></tr></thead>
+      <tbody>
+        <tr><td class="op">JVM app server (Spring Boot)</td><td class="v">~1,000 QPS per instance</td></tr>
+        <tr><td class="op">Nginx</td><td class="v">50K+ concurrent connections</td></tr>
+        <tr><td class="op">MySQL / PostgreSQL, single node</td><td class="v">~10K indexed-read QPS, ~1–5K writes/s, ~1–2 TB</td></tr>
+        <tr><td class="op">Redis, single node</td><td class="v">10–100 GB, ~100K ops/s</td></tr>
+        <tr><td class="op">Cassandra / ScyllaDB, per node</td><td class="v">~10–50K ops/s; clusters handle millions of writes/s</td></tr>
+        <tr><td class="op">Cassandra / ScyllaDB partition</td><td class="v">&lt; ~100 MB / ~100K rows</td><td class="hook">exactly why Discord bucketed</td></tr>
+        <tr><td class="op">Kafka broker</td><td class="v">~100K+ msgs/s</td></tr>
+        <tr><td class="op">Elasticsearch shard</td><td class="v">10–50 GB</td></tr>
+        <tr><td class="op">S3 / object storage</td><td class="v">effectively unlimited, ~ms latency</td></tr>
+        <tr><td class="op">CDN</td><td class="v">offloads ~90%+ of static traffic</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="s10">
+    <h2><span class="num">10</span> 60-second worked example</h2>
+    <p class="sub">"Chat app: 100M DAU, each sends 2 messages/day, 1 KB per message, 20 reads per write."</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Estimate</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td class="op">Write QPS</td><td class="v">2×10<sup>8</sup> ÷ 86,400 ≈ 2.3K avg → ~5K peak</td></tr>
+        <tr><td class="op">Read QPS</td><td class="v">20 × 2.3K ≈ 46K avg → ~93K peak</td></tr>
+        <tr><td class="op">Storage</td><td class="v">205 GB/day → 75 TB/yr → ~375 TB (5 yr) → ~1.1 PB with RF=3</td></tr>
+        <tr><td class="op">Egress</td><td class="v">46K × 1 KB × 8 ≈ 0.38 Gbps</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout teal">
+      <b>Discord connection:</b> at 200K messages/day/channel, a 100K-row partition cap holds about half a day of traffic — Discord's 10-day bucket works because their per-partition budget is much larger. The same formula <code>bucket = total budget ÷ write rate</code> drives the choice.
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  Interviewers never check exact digits — they check whether your orders of magnitude are sane
+  and whether you state assumptions out loud before computing.
+</footer>
+
+</body>
+</html>

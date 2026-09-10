@@ -1,0 +1,17 @@
+{
+  "ports": {
+    "cassandra-demo": 8080,
+    "booking-demo": 8083,
+    "distributed-scheduling-lab": 8084,
+    "dropbox-demo": 8085,
+    "gopuff-demo": 8082,
+    "interview-face-coach": 5173,
+    "yelp-demo": 8081,
+    "elastic-search-demo": 8086,
+    "color-corrector": 8087
+  },
+  "pids": {
+    "cassandra-demo": 0,
+    "booking-demo": 0
+  }
+}

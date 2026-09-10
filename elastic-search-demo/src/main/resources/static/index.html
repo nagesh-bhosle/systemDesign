@@ -1,0 +1,1232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Elastic Search Lab — Postgres vs Elasticsearch</title>
+<style>
+:root{
+  --bg:#f5f5f5;
+  --card:#fff;
+  --border:#e6e6e6;
+  --accent:#f6c343;
+  --teal:#00bcd4;
+  --teal-dark:#0097a7;
+  --text:#333;
+  --muted:#999;
+  --success:#2ecc71;
+  --danger:#e74c3c;
+  --warning:#f39c12;
+  --header-bg:#1a2332;
+  --header-accent:#f6c343;
+  --radius:10px;
+  --shadow:0 1px 3px rgba(0,0,0,0.08);
+  --shadow-lg:0 4px 16px rgba(0,0,0,0.10);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  line-height:1.5;
+  min-height:100vh;
+}
+/* Header */
+.site-header{
+  background:var(--header-bg);
+  color:#fff;
+  padding:18px 28px 16px;
+  border-bottom:4px solid var(--header-accent);
+  position:sticky;top:0;z-index:100;
+  display:flex;align-items:center;flex-wrap:wrap;gap:12px;
+}
+.site-header .brand{display:flex;flex-direction:column;gap:2px}
+.site-header .brand h1{font-size:22px;font-weight:800;letter-spacing:-0.5px;line-height:1}
+.site-header .brand p{font-size:13px;opacity:0.7;font-weight:400}
+.site-header .spacer{flex:1}
+.header-badges{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.hdr-badge{
+  background:rgba(255,255,255,0.10);
+  border:1px solid rgba(255,255,255,0.14);
+  padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;
+  display:inline-flex;align-items:center;gap:6px;
+}
+.hdr-badge strong{color:var(--accent)}
+.health-dot{width:10px;height:10px;border-radius:50%;display:inline-block;border:2px solid rgba(255,255,255,0.4)}
+.health-dot.green{background:#2ecc71;box-shadow:0 0 6px rgba(46,204,113,0.7)}
+.health-dot.yellow{background:#f6c343;box-shadow:0 0 6px rgba(246,195,67,0.7)}
+.health-dot.red{background:#e74c3c;box-shadow:0 0 6px rgba(231,76,60,0.7)}
+.header-link{
+  color:var(--accent);text-decoration:none;font-size:12px;font-weight:700;
+  border:1px solid rgba(246,195,67,0.35);padding:6px 12px;border-radius:20px;transition:all .2s;
+}
+.header-link:hover{background:var(--accent);color:var(--header-bg)}
+/* Anchor nav */
+.anchor-nav{
+  background:#fff;
+  border-bottom:1px solid var(--border);
+  padding:0 28px;
+  display:flex;gap:4px;align-items:center;
+  position:sticky;top:66px;z-index:90;
+  overflow-x:auto;
+  box-shadow:0 1px 0 rgba(0,0,0,0.04);
+}
+.anchor-nav a{
+  text-decoration:none;color:var(--muted);font-size:13px;font-weight:700;
+  padding:12px 16px;border-bottom:3px solid transparent;white-space:nowrap;transition:all .15s;
+}
+.anchor-nav a:hover{color:var(--text)}
+.anchor-nav a.active{color:var(--header-bg);border-bottom-color:var(--accent)}
+/* Layout */
+.page{max-width:1180px;margin:0 auto;padding:24px 20px 60px}
+/* Section titles */
+.section-label{
+  font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:6px;
+}
+.section-head{margin-bottom:18px}
+.section-head h2{font-size:22px;font-weight:800;letter-spacing:-0.5px}
+.section-head p{font-size:13px;color:#777;margin-top:4px}
+/* Cards */
+.card{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+}
+/* Search section */
+.search-panel{padding:20px}
+.search-bar-row{
+  display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;margin-bottom:6px;
+}
+.input-wrap{position:relative;flex:1;min-width:240px;display:flex;align-items:center}
+.input-wrap input{
+  width:100%;border:1px solid var(--border);border-radius:8px;
+  padding:11px 14px 11px 36px;font-size:14px;outline:none;background:#fff;
+  transition:border-color .15s,box-shadow .15s;
+}
+.input-wrap input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(246,195,67,0.2)}
+.input-wrap .input-icon{position:absolute;left:12px;font-size:16px;color:var(--muted);pointer-events:none}
+.select-sm{
+  border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;
+  background:#fff;outline:none;cursor:pointer;min-width:120px;
+}
+.select-sm:focus{border-color:var(--accent)}
+.btn-primary{
+  background:var(--header-bg);color:#fff;border:none;padding:11px 22px;border-radius:8px;
+  font-size:13px;font-weight:700;cursor:pointer;transition:all .18s;white-space:nowrap;
+}
+.btn-primary:hover{background:#0f1419;transform:translateY(-1px);box-shadow:0 4px 10px rgba(0,0,0,0.14)}
+.btn-primary:active{transform:translateY(0)}
+.btn-accent{
+  background:var(--accent);color:#1a2332;border:none;padding:10px 18px;border-radius:8px;
+  font-size:13px;font-weight:800;cursor:pointer;transition:all .18s;
+}
+.btn-accent:hover{background:#e6b53a;transform:translateY(-1px)}
+.btn-ghost{
+  background:#fff;border:1px solid var(--border);padding:8px 14px;border-radius:20px;
+  font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;
+}
+.btn-ghost:hover{border-color:var(--accent);color:var(--header-bg);background:#fffef5}
+.btn-ghost.active{background:var(--header-bg);color:#fff;border-color:var(--header-bg)}
+/* Suggest dropdown */
+.suggest-dropdown{
+  position:absolute;top:calc(100% + 6px);left:0;right:0;
+  background:#fff;border:1px solid var(--border);border-radius:10px;
+  box-shadow:var(--shadow-lg);z-index:50;overflow:hidden;display:none;
+}
+.suggest-dropdown.open{display:block}
+.suggest-item{
+  padding:9px 14px;display:flex;justify-content:space-between;align-items:center;
+  cursor:pointer;font-size:13px;border-bottom:1px solid #f0f0f0;transition:background .1s;
+}
+.suggest-item:last-child{border-bottom:none}
+.suggest-item:hover,.suggest-item.highlighted{background:#fff8db}
+.suggest-item .s-text{font-weight:600}
+.suggest-badge{font-size:11px;background:#f0f0f0;color:#666;padding:2px 8px;border-radius:10px;font-weight:600}
+/* Quick locations */
+.quick-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0 8px}
+.quick-row .ql-label{font-size:12px;font-weight:700;color:var(--muted)}
+.location-label{
+  font-size:13px;font-weight:600;color:var(--teal-dark);background:#e0f7fa;
+  border:1px solid #b2ebf2;padding:7px 12px;border-radius:8px;display:none;margin-bottom:12px;
+}
+.location-label.show{display:block}
+/* Results layout */
+.results-layout{display:flex;gap:16px;align-items:flex-start;margin-top:16px}
+.results-main{flex:1;min-width:0}
+.results-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px}
+.results-head h3{font-size:16px;font-weight:800}
+.results-head .count{font-size:13px;color:var(--muted)}
+#resultsContainer{display:flex;flex-direction:column;gap:10px}
+.business-card{
+  background:var(--card);border:1px solid var(--border);border-radius:10px;
+  padding:14px 16px;display:flex;gap:14px;cursor:pointer;transition:all .18s;
+}
+.business-card:hover{box-shadow:var(--shadow-lg);transform:translateY(-1px);border-color:#ddd}
+.business-card .bc-img{
+  width:64px;height:64px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  font-size:34px;background:#fff8e1;border-radius:10px;border:1px solid #ffecb3;
+}
+.business-card .bc-info{flex:1;min-width:0}
+.business-card .bc-name{font-size:15px;font-weight:800;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.business-card .bc-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}
+.business-card .bc-cat{font-size:12px;color:var(--muted);text-transform:capitalize}
+.business-card .bc-addr{font-size:12px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.business-card .bc-dist{font-size:12px;color:var(--teal-dark);font-weight:700;margin-top:3px}
+.price-tag{background:#fff8e1;color:#e6a700;border:1px solid #ffeaa7;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:800}
+.stars{color:#ffa000;letter-spacing:1px;font-size:13px}
+.rating-num{font-weight:800;font-size:13px}
+.review-count{color:var(--muted);font-size:12px}
+/* Detail panel */
+.detail-panel{
+  flex:0 0 400px;background:var(--card);border:1px solid var(--border);
+  border-radius:10px;box-shadow:var(--shadow);padding:18px;
+  position:sticky;top:116px;max-height:calc(100vh - 130px);overflow-y:auto;display:none;
+}
+.detail-panel.open{display:block}
+.detail-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;gap:10px}
+.detail-head h3{font-size:18px;font-weight:800;line-height:1.2}
+.close-btn{background:none;border:none;font-size:26px;cursor:pointer;color:var(--muted);line-height:1;padding:0}
+.close-btn:hover{color:var(--text)}
+.detail-img{font-size:56px;text-align:center;padding:18px;background:#fffef5;border-radius:10px;margin-bottom:12px;border:1px solid #ffecb3}
+.detail-desc{font-size:13px;line-height:1.6;color:#555;margin-bottom:12px}
+.detail-row{display:flex;gap:8px;font-size:13px;margin-bottom:6px}
+.detail-row .lbl{font-weight:700;min-width:74px;color:#444}
+.reviews-sec{margin-top:18px;border-top:2px solid var(--border);padding-top:14px}
+.reviews-sec h4{font-size:14px;font-weight:800;margin-bottom:10px}
+.review-card{padding:10px 0;border-bottom:1px solid #f0f0f0}
+.review-card:last-child{border-bottom:none}
+.rh{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.r-avatar{font-size:20px}
+.r-author{font-weight:700;font-size:13px}
+.r-date{font-size:11px;color:var(--muted)}
+.r-stars{color:#ffa000;font-size:13px;letter-spacing:1px;margin-bottom:4px}
+.r-text{font-size:13px;color:#555;line-height:1.5}
+.review-form{background:#fffef5;border:1px solid #ffecb3;border-radius:10px;padding:14px;margin-top:14px}
+.review-form h5{font-size:13px;font-weight:800;margin-bottom:10px}
+.form-group{margin-bottom:10px}
+.form-group label{display:block;font-size:12px;font-weight:700;margin-bottom:4px}
+.form-group select,.form-group textarea,.form-group input{
+  width:100%;border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px;outline:none;font-family:inherit;background:#fff;
+}
+.form-group textarea{min-height:70px;resize:vertical}
+.star-rating{display:flex;gap:4px;font-size:22px;cursor:pointer}
+.star-rating span{color:#ddd;transition:color .15s;user-select:none}
+.star-rating span.active{color:#ffa000}
+.btn-submit{background:var(--header-bg);color:#fff;border:none;padding:10px;width:100%;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;transition:background .18s}
+.btn-submit:hover{background:#0f1419}
+.btn-submit:disabled{opacity:.5;cursor:not-allowed}
+/* Loading & empty */
+.loading{text-align:center;padding:36px 16px;color:var(--muted);font-size:13px}
+.spinner{width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;display:inline-block;animation:spin .7s linear infinite;margin-bottom:10px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty{ text-align:center;padding:40px 16px;color:var(--muted)}
+.empty .e-icon{font-size:36px;margin-bottom:8px}
+.empty p{font-size:13px}
+/* Benchmark section */
+.benchmark-section{
+  background:#fffef5;border:1px solid #ffeaa7;border-radius:12px;
+  padding:22px;box-shadow:var(--shadow);
+}
+.benchmark-top{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px}
+.benchmark-top h2{font-size:18px;font-weight:800}
+.benchmark-top p{font-size:12px;color:#8d7a00;margin-top:2px}
+.bench-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.bench-card{
+  background:#fff;border:1px solid var(--border);border-radius:10px;padding:16px;
+  display:flex;flex-direction:column;gap:10px;
+}
+.bench-card.accent-yellow{border-left:4px solid var(--accent);background:#fffef5}
+.bench-card.accent-teal{border-left:4px solid var(--teal);background:#f0fafb}
+.bench-card h4{font-size:14px;font-weight:800;display:flex;align-items:center;gap:6px}
+.bench-card .desc{font-size:12px;color:#666;line-height:1.5;min-height:32px}
+.bench-card .run-btn{
+  background:var(--header-bg);color:#fff;border:none;padding:8px 14px;border-radius:8px;
+  font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;width:100%;
+}
+.bench-card .run-btn:hover{background:#0f1419}
+.bench-card .run-btn:disabled{opacity:.5;cursor:not-allowed}
+.bench-result{font-size:12px;min-height:80px}
+.bench-result .br-table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12px}
+.bench-result .br-table th{ text-align:left;padding:6px 6px;background:#f5f5f5;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+.bench-result .br-table td{padding:6px;border-bottom:1px solid #f0f0f0}
+.bench-result .winner{color:var(--success);font-weight:800}
+.bench-result .loser{color:var(--muted)}
+.bar-row{display:flex;align-items:center;gap:8px;margin:6px 0}
+.bar-row .bar-label{font-size:11px;font-weight:700;min-width:28px}
+.bar-row .bar-track{flex:1;height:14px;background:#eee;border-radius:7px;overflow:hidden}
+.bar-row .bar-fill{height:100%;border-radius:7px;transition:width .6s}
+.bar-row .bar-fill.pg{background:#e74c3c}
+.bar-row .bar-fill.es{background:var(--teal)}
+.bar-row .bar-val{font-size:11px;font-weight:700;min-width:48px;text-align:right}
+.preview-list{margin-top:6px;display:flex;flex-direction:column;gap:4px}
+.preview-list .pv{font-size:11px;background:#f9f9f9;padding:4px 8px;border-radius:6px;border:1px solid #eee;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Capabilities */
+.cap-section{padding:20px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;border-bottom:2px solid var(--border);padding-bottom:0}
+.tab-btn{
+  background:none;border:none;padding:10px 16px;font-size:13px;font-weight:700;
+  color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;transition:all .15s;
+}
+.tab-btn.active{color:var(--header-bg);border-bottom-color:var(--accent);background:#fffef5}
+.tab-btn:hover{color:var(--text)}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+.cap-explain{
+  background:#f7f9fb;border:1px solid #e3e8ef;border-radius:8px;padding:12px 14px;
+  font-size:12px;color:#444;line-height:1.6;margin-bottom:14px;
+}
+.cap-explain strong{color:var(--header-bg)}
+.cap-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.cap-row input{flex:1;min-width:180px;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;outline:none}
+.cap-row input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(246,195,67,0.18)}
+.cap-results{display:flex;flex-direction:column;gap:8px}
+.cap-mini-card{border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:#fff;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.cap-mini-card .cm-name{font-weight:700;font-size:13px}
+.cap-mini-card .cm-meta{font-size:11px;color:var(--muted)}
+.agg-wrap{margin-top:10px}
+.chip-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.cat-chip{
+  display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--border);
+  padding:6px 10px;border-radius:20px;font-size:12px;font-weight:600;
+}
+.cat-chip .cc-bar{width:48px;height:6px;background:#eee;border-radius:3px;overflow:hidden}
+.cat-chip .cc-fill{height:100%;background:var(--accent)}
+.hist-row{display:flex;align-items:center;gap:10px;margin:6px 0}
+.hist-row .hr-label{font-size:11px;font-weight:700;min-width:40px}
+.hist-row .hr-track{flex:1;height:12px;background:#eee;border-radius:6px;overflow:hidden}
+.hist-row .hr-fill{height:100%;background:var(--teal);border-radius:6px}
+.hist-row .hr-val{font-size:11px;font-weight:700;min-width:30px;text-align:right}
+/* Interview Notes */
+.interview-section{
+  background:#fff;border:1px solid var(--border);border-radius:12px;padding:22px;
+  box-shadow:var(--shadow);
+}
+.interview-section h2{font-size:18px;font-weight:800;margin-bottom:6px}
+.interview-section .sub{font-size:12px;color:var(--muted);margin-bottom:16px}
+.note-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.note-block{background:#fafafa;border:1px solid var(--border);border-radius:10px;padding:14px}
+.note-block.full{grid-column:1 / -1}
+.note-block h4{font-size:13px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.note-block ul{padding-left:18px;font-size:12px;line-height:1.7;color:#444}
+.note-block li{margin-bottom:2px}
+.note-block p{font-size:12px;line-height:1.6;color:#444}
+.code-block{
+  background:#1a2332;color:#e6edf3;border-radius:8px;padding:12px 14px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  font-size:11px;line-height:1.6;overflow-x:auto;white-space:pre;margin-top:8px;border:1px solid #2d3a4f;
+}
+.code-block .c-key{color:#79c0ff}
+.code-block .c-str{color:#a5d6ff}
+.code-block .c-num{color:#ffab70}
+details{margin-top:10px}
+details summary{cursor:pointer;font-weight:800;font-size:13px;padding:8px 0;list-style:none;display:flex;align-items:center;gap:8px}
+details summary::-webkit-details-marker{display:none}
+details[open] summary{color:var(--header-bg)}
+.tag{font-size:10px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;padding:2px 7px;border-radius:4px}
+.tag-why{background:#fff3cd;color:#856404;border:1px solid #ffeaa7}
+.tag-core{background:#e0f7fa;color:#006064;border:1px solid #b2ebf2}
+.tag-write{background:#e8f5e9;color:#2e7d32;border:1px solid #c8e6c9}
+.tag-read{background:#ede7f6;color:#4527a0;border:1px solid #d1c4e9}
+/* Toast */
+.toast{
+  position:fixed;bottom:20px;right:20px;background:#1a2332;color:#fff;
+  padding:11px 16px;border-radius:8px;font-size:13px;box-shadow:var(--shadow-lg);
+  z-index:999;opacity:0;transform:translateY(12px);transition:all .25s;pointer-events:none;max-width:320px;
+}
+.toast.show{opacity:1;transform:translateY(0)}
+.toast.success{border-left:4px solid var(--success)}
+.toast.error{border-left:4px solid var(--danger)}
+.toast.info{border-left:4px solid var(--accent)}
+/* Pagination */
+.pagination{display:flex;gap:8px;align-items:center;justify-content:center;margin-top:14px}
+.pagination button{padding:6px 12px;border:1px solid var(--border);background:#fff;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer}
+.pagination button:disabled{opacity:.4;cursor:not-allowed}
+.pagination span{font-size:12px;color:var(--muted)}
+/* Responsive */
+@media(max-width:900px){
+  .results-layout{flex-direction:column}
+  .detail-panel{flex:1;width:100%;position:static;max-height:none}
+  .bench-grid{grid-template-columns:1fr}
+  .note-grid{grid-template-columns:1fr}
+  .site-header{padding:14px 16px}
+  .anchor-nav{top:68px;padding:0 12px}
+}
+@media(max-width:560px){
+  .page{padding:16px 12px 40px}
+  .search-bar-row{gap:8px}
+  .select-sm{min-width:90px;flex:1}
+}
+</style>
+</head>
+<body>
+<header class="site-header">
+  <div class="brand">
+    <h1>🔍 Elastic Search Lab</h1>
+    <p>Postgres vs Elasticsearch — text, geo, and timing</p>
+  </div>
+  <div class="spacer"></div>
+  <div class="header-badges">
+    <span class="hdr-badge" id="pgBadge">PG: —</span>
+    <span class="hdr-badge" id="esBadge">ES: —</span>
+    <span class="hdr-badge"><span class="health-dot" id="healthDot" style="background:#999"></span><span id="healthText">checking…</span><span id="indexBadge" style="font-size:10px;opacity:.7"></span></span>
+    <a class="header-link" href="#interviewNotes">📚 Interview Notes</a>
+  </div>
+</header>
+<nav class="anchor-nav" id="anchorNav">
+  <a href="#search" class="active">Search</a>
+  <a href="#benchmark">Benchmark Lab</a>
+  <a href="#capabilities">Capabilities</a>
+  <a href="#interviewNotes">Interview Notes</a>
+</nav>
+<div class="page">
+  <!-- SECTION 1 — Search -->
+  <section id="search">
+    <div class="section-head">
+      <div class="section-label">Section 1 — Live Search</div>
+      <h2>Search with As-you-type</h2>
+      <p>Full-text, geo-distance, category filtering and instant suggestions — same index, two engines.</p>
+    </div>
+    <div class="card search-panel">
+      <div class="search-bar-row">
+        <div class="input-wrap" style="flex:1.6">
+          <span class="input-icon">🔍</span>
+          <input id="queryInput" type="text" placeholder="Search restaurants (e.g. taco, biryani, coffee)" autocomplete="off" />
+          <div id="suggestDropdown" class="suggest-dropdown"></div>
+        </div>
+        <select id="categoryFilter" class="select-sm"><option value="">All categories</option></select>
+        <select id="radiusFilter" class="select-sm">
+          <option value="500">0.5 km</option>
+          <option value="1000" selected>1 km</option>
+          <option value="5000">5 km</option>
+          <option value="10000">10 km</option>
+        </select>
+        <select id="sortBy" class="select-sm">
+          <option value="rating">★ Rating</option>
+          <option value="distance">📍 Distance</option>
+        </select>
+        <button class="btn-primary" id="searchBtn" onclick="doSearch()">Search</button>
+      </div>
+      <div class="quick-row">
+        <span class="ql-label">Quick locations:</span>
+        <button class="btn-ghost" onclick="setLocation('SF',37.7749,-122.4194)">📍 SF</button>
+        <button class="btn-ghost" onclick="setLocation('Manhattan',40.7128,-74.0060)">📍 Manhattan</button>
+        <button class="btn-ghost" onclick="setLocation('Bangalore',12.9716,77.5946)">📍 Bangalore</button>
+        <button class="btn-ghost" onclick="useMyLocation()">◎ Near Me</button>
+        <button class="btn-ghost" onclick="clearLocation()">✕ Clear</button>
+        <span style="font-size:11px;color:var(--muted);margin-left:4px">Use My Location via browser geolocation</span>
+      </div>
+      <div id="locationLabel" class="location-label"></div>
+      <div class="results-layout">
+        <div class="results-main">
+          <div class="results-head">
+            <h3 id="resultsTitle">All Businesses</h3>
+            <span class="count" id="resultsCount"></span>
+          </div>
+          <div id="resultsContainer"><div class="loading"><div class="spinner"></div><br>Loading businesses…</div></div>
+          <div class="pagination" id="pagination" style="display:none">
+            <button id="prevBtn" onclick="changePage(-1)">← Prev</button>
+            <span id="pageInfo"></span>
+            <button id="nextBtn" onclick="changePage(1)">Next →</button>
+          </div>
+        </div>
+        <div id="detailPanel" class="detail-panel">
+          <div id="detailContent"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <!-- SECTION 2 — Benchmark Lab -->
+  <section id="benchmark" style="margin-top:28px">
+    <div class="benchmark-section">
+      <div class="benchmark-top">
+        <div>
+          <h2>⚡ Benchmark Lab — Postgres vs Elasticsearch</h2>
+          <p>Same query, two engines — timed head-to-head. Green wins.</p>
+        </div>
+        <button class="btn-accent" id="runAllBtn" onclick="runAllBenchmarks()">▶ Run all three</button>
+      </div>
+      <div class="bench-grid">
+        <div class="bench-card accent-yellow">
+          <h4>📝 Text Search</h4>
+          <div class="desc">Full-text: <code>q=taco</code> — name &amp; description match with BM25 ranking.</div>
+          <button class="run-btn" id="btnText" onclick="runTextBench()">Run text benchmark</button>
+          <div id="benchResultsText" class="bench-result"><span style="color:var(--muted)">Click Run to compare PG vs ES timing.</span></div>
+        </div>
+        <div class="bench-card accent-teal">
+          <h4>📍 Geo 1 km</h4>
+          <div class="desc">Find restaurants within <b>1 km</b> of Mission (SF) — <code>37.7522, -122.4157</code>.</div>
+          <button class="run-btn" id="btnGeo" onclick="runGeoBench()">Run geo benchmark</button>
+          <div id="benchResultsGeo" class="bench-result"><span style="color:var(--muted)">Click Run to see geo_distance vs PostGIS.</span></div>
+        </div>
+        <div class="bench-card accent-yellow">
+          <h4>🔀 Combined</h4>
+          <div class="desc">Text + geo + category: <code>spicy pizza</code> near SF, <code>restaurant</code>, 1 km.</div>
+          <button class="run-btn" id="btnCombined" onclick="runCombinedBench()">Run combined</button>
+          <div id="benchResultsCombined" class="bench-result"><span style="color:var(--muted)">Click Run for multi-clause scoring.</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <!-- SECTION 3 — Capabilities Explorer -->
+  <section id="capabilities" style="margin-top:28px">
+    <div class="card cap-section">
+      <div class="section-label">Section 3 — Explorer</div>
+      <h2 style="font-size:18px;font-weight:800;margin-bottom:4px">Capabilities Explorer</h2>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:14px">Peek under the hood: analyzers, BKD trees, aggregations and fuzzy matching.</p>
+      <div class="tabs" id="capTabs">
+        <button class="tab-btn active" data-tab="fulltext" onclick="switchTab('fulltext')">Full-text</button>
+        <button class="tab-btn" data-tab="geo" onclick="switchTab('geo')">Geo</button>
+        <button class="tab-btn" data-tab="aggs" onclick="switchTab('aggs')">Aggregations</button>
+        <button class="tab-btn" data-tab="fuzzy" onclick="switchTab('fuzzy')">Fuzzy</button>
+      </div>
+      <!-- Full-text panel -->
+      <div id="tab-fulltext" class="tab-panel active">
+        <div class="cap-explain"><strong>Standard analyzer vs english analyzer</strong> · Tokens are lowercased, stemmed and stop-word filtered. Query uses <code>multi_match</code> with <code>name^3</code> boosting — a name hit outranks description.</div>
+        <div class="cap-row">
+          <input id="capTextInput" type="text" placeholder="Try: taco, biryani, spicy pizza…" />
+          <button class="btn-primary" onclick="capTextSearch()">Search</button>
+        </div>
+        <div id="capTextNote" style="font-size:11px;color:var(--muted);margin-bottom:8px"></div>
+        <div id="capTextResults" class="cap-results"></div>
+      </div>
+      <!-- Geo panel -->
+      <div id="tab-geo" class="tab-panel">
+        <div class="cap-explain"><strong>geo_point BKD tree</strong> · Latitude/longitude indexed as BKD. Queries use <code>geo_distance</code> (radius filter) and <code>_geo_distance</code> sort. Far faster than PostGIS ST_DWithin at scale.</div>
+        <p style="font-size:12px;color:#555;margin-bottom:10px">Current pin: <span id="capGeoPin" style="font-weight:700">none — pick a quick location above</span></p>
+        <div class="cap-row">
+          <button class="btn-primary" onclick="document.getElementById('benchmark').scrollIntoView({behavior:'smooth'}); setTimeout(runGeoBench,400)">Try 1 km search → Benchmark Lab</button>
+          <button class="btn-ghost" onclick="capGeoSearch()">Run geo search (1 km here)</button>
+        </div>
+        <div id="capGeoResults" class="cap-results"></div>
+      </div>
+      <!-- Aggregations panel -->
+      <div id="tab-aggs" class="tab-panel">
+        <div class="cap-explain"><strong>Aggregations = GROUP BY for search</strong> · Single pass over the index: <code>terms</code> on category, <code>histogram</code> on avg_rating. No extra queries.</div>
+        <button class="btn-primary" id="loadAggBtn" onclick="loadAggregations()">Load aggregations</button>
+        <div id="aggResults" class="agg-wrap"></div>
+      </div>
+      <!-- Fuzzy panel -->
+      <div id="tab-fuzzy" class="tab-panel">
+        <div class="cap-explain"><strong>fuzziness: AUTO</strong> · Levenshtein distance corrects typos. <code>piza</code> → <code>pizza</code>, <code>burgor</code> → <code>burger</code> — same BM25 scoring after correction.</div>
+        <div class="cap-row">
+          <input id="capFuzzyInput" type="text" placeholder="Try: piza, burgor, sushii" />
+          <button class="btn-primary" onclick="capFuzzySearch()">Fuzzy search</button>
+        </div>
+        <div id="capFuzzyNote" style="font-size:11px;color:var(--muted);margin-bottom:8px"></div>
+        <div id="capFuzzyResults" class="cap-results"></div>
+      </div>
+    </div>
+  </section>
+  <!-- SECTION 4 — Interview Notes -->
+  <section id="interviewNotes" style="margin-top:28px">
+    <div class="interview-section">
+      <h2>📚 System Design Interview Notes — Elasticsearch</h2>
+      <p class="sub">Scannable, bullet-heavy reference for the whiteboard. No fetch — pure static HTML.</p>
+      <div class="note-grid">
+        <div class="note-block">
+          <h4><span class="tag tag-why">Why ES</span> Postgres vs Elasticsearch</h4>
+          <ul>
+            <li><code>LIKE '%q%'</code> is <b>O(n) scan</b> — no index, no ranking.</li>
+            <li><code>tsvector / tsquery</code> helps but limited: basic ranking, no fuzzy, weak geo, no aggregations.</li>
+            <li>ES gives <b>inverted index + BM25 + analyzers + geo BKD + aggs</b> in one engine.</li>
+            <li>Trade-off: eventual consistency (refresh 1 s), extra infra, dual-write complexity.</li>
+            <li>Rule of thumb: PG for transactional truth; ES for search, discovery, analytics.</li>
+          </ul>
+        </div>
+        <div class="note-block">
+          <h4><span class="tag tag-core">Core</span> Document → Index → Shard → Segment</h4>
+          <ul>
+            <li><b>Document</b> = JSON row · <b>Index</b> = collection/table · <b>Shard</b> = partition (primary + replicas).</li>
+            <li><b>Segment</b> = immutable Lucene file with its own inverted index; background <b>merge</b> compacts them.</li>
+            <li><b>Inverted index</b>: term → sorted doc IDs + positions + frequencies.</li>
+            <li><b>Analyzer chain</b>: char filter → tokenizer → token filters (lowercase, stemmer, stop, synonym).</li>
+            <li><b>Mapping types</b>: <code>text</code> (analyzed), <code>keyword</code> (exact), <code>geo_point</code>, numeric, date.</li>
+          </ul>
+        </div>
+        <div class="note-block">
+          <h4><span class="tag tag-write">Write</span> Indexing path</h4>
+          <ul>
+            <li>Client → <code>bulk</code> index → primary shard → replica shards (async/sync).</li>
+            <li>In-memory buffer → <b>refresh (1 s)</b> → new segment visible for search (near-real-time).</li>
+            <li>Translog (WAL) → fsync for durability; on crash replay translog.</li>
+            <li>Background <b>segment merge</b> reduces segment count, reclaims deletes.</li>
+            <li>Tuning: increase <code>refresh_interval</code> for bulk loads; use <code>bulk</code> not single docs.</li>
+          </ul>
+        </div>
+        <div class="note-block">
+          <h4><span class="tag tag-read">Read</span> Search path</h4>
+          <ul>
+            <li>Scatter: coordinator fans query to all shards (or routing shard).</li>
+            <li>Gather: each shard scores locally (BM25), returns top-k doc IDs + scores.</li>
+            <li>Coordinator merges, re-sorts, fetches stored fields — then <b>highlight / aggs / sort</b>.</li>
+            <li>BM25: TF × IDF × field-length norm — rewards rare terms, penalizes long fields.</li>
+            <li>Pagination: <code>from/size</code> for shallow, <code>search_after</code> / scroll for deep.</li>
+          </ul>
+        </div>
+        <div class="note-block">
+          <h4>🌍 Geo</h4>
+          <ul>
+            <li><code>geo_point</code> indexed in <b>BKD tree</b> — 2-D numeric range tree, very fast radius.</li>
+            <li>Queries: <code>geo_distance</code> (within X m), <code>geo_bounding_box</code>, <code>geo_polygon</code>.</li>
+            <li>Sort: <code>_geo_distance</code> — returns distance per hit for display.</li>
+            <li>Aggregations: <code>geohash_grid</code> / <code>geo_distance</code> buckets for heatmaps.</li>
+            <li>PG PostGIS <code>ST_DWithin</code> is fine for low QPS; ES geo wins at high concurrency.</li>
+          </ul>
+        </div>
+        <div class="note-block">
+          <h4>⭐ Relevance</h4>
+          <ul>
+            <li><b>BM25</b> default — tuned via <code>k1</code> (TF saturation) and <code>b</code> (length norm).</li>
+            <li>Boosting: <code>multi_match: { fields: ["name^3","description"] }</code> — name hits ×3.</li>
+            <li>Function score: decay on distance/recency, boost on rating/popularity.</li>
+            <li>Highlighting: per-field snippets with <code>&lt;em&gt;</code> tags, cheap at query time.</li>
+            <li>Synonyms &amp; analyzers: <code>english</code> stemmer, custom filters for domain jargon.</li>
+          </ul>
+        </div>
+        <div class="note-block">
+          <h4>⌨️ Autocomplete</h4>
+          <ul>
+            <li><b>edge_ngram</b>: index prefixes (<code>p, pi, piz, pizz…</code>) — simple, supports typo via fuzzy.</li>
+            <li><b>completion suggester</b>: FST in memory — fastest, but exact prefix, separate data structure.</li>
+            <li><b>search_as_you_type</b>: built-in n-grams + shingle — best balance, supports slop.</li>
+            <li>This demo: <code>/api/suggest</code> backed by ES completion/edge_ngram — debounced 200 ms on client.</li>
+            <li>Keyboard nav: ArrowUp/Down + Enter + Esc; blur hides after 150 ms.</li>
+          </ul>
+        </div>
+        <div class="note-block">
+          <h4>⚖️ When to pick ES vs PG</h4>
+          <ul>
+            <li><b>Pick PG</b>: strong consistency, joins, transactions, low search volume.</li>
+            <li><b>Pick ES</b>: full-text, fuzzy, geo, facets/aggs, high QPS search.</li>
+            <li><b>Both</b>: PG as source of truth, ES as derived read model — <b>dual-write</b> problem.</li>
+            <li>Sync: outbox pattern → CDC (Debezium) → Kafka → ES indexer (at-least-once, idempotent).</li>
+            <li>Failure modes: lag, drift, split-brain — reconcile via periodic batch reindex / checksum jobs.</li>
+            <li>Scaling: more <b>shards</b> = write parallelism; more <b>replicas</b> = read parallelism &amp; HA. Avoid oversharding.</li>
+          </ul>
+        </div>
+        <div class="note-block full">
+          <h4>🧩 Mapping &amp; Query DSL — copy-paste starters</h4>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div>
+              <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px">Mapping (index creation)</div>
+              <div class="code-block">{
+  <span class="c-key">"mappings"</span>: {
+    <span class="c-key">"properties"</span>: {
+      <span class="c-key">"name"</span>:        { <span class="c-key">"type"</span>: <span class="c-str">"text"</span>, <span class="c-key">"analyzer"</span>: <span class="c-str">"english"</span>, <span class="c-key">"fields"</span>: { <span class="c-key">"keyword"</span>: { <span class="c-key">"type"</span>: <span class="c-str">"keyword"</span> } } },
+      <span class="c-key">"description"</span>: { <span class="c-key">"type"</span>: <span class="c-str">"text"</span>, <span class="c-key">"analyzer"</span>: <span class="c-str">"english"</span> },
+      <span class="c-key">"category"</span>:    { <span class="c-key">"type"</span>: <span class="c-str">"keyword"</span> },
+      <span class="c-key">"location"</span>:    { <span class="c-key">"type"</span>: <span class="c-str">"geo_point"</span> },
+      <span class="c-key">"avgRating"</span>:   { <span class="c-key">"type"</span>: <span class="c-str">"float"</span> },
+      <span class="c-key">"suggest"</span>:     { <span class="c-key">"type"</span>: <span class="c-str">"completion"</span> }
+    }
+  }
+}</div>
+            </div>
+            <div>
+              <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px">Query DSL (combined text + geo + filter)</div>
+              <div class="code-block">{
+  <span class="c-key">"query"</span>: {
+    <span class="c-key">"bool"</span>: {
+      <span class="c-key">"must"</span>: [
+        { <span class="c-key">"multi_match"</span>: {
+            <span class="c-key">"query"</span>: <span class="c-str">"spicy pizza"</span>,
+            <span class="c-key">"fields"</span>: [<span class="c-str">"name^3"</span>, <span class="c-str">"description"</span>],
+            <span class="c-key">"fuzziness"</span>: <span class="c-str">"AUTO"</span>
+        }}
+      ],
+      <span class="c-key">"filter"</span>: [
+        { <span class="c-key">"term"</span>: { <span class="c-key">"category"</span>: <span class="c-str">"restaurant"</span> }},
+        { <span class="c-key">"geo_distance"</span>: {
+            <span class="c-key">"distance"</span>: <span class="c-str">"1km"</span>,
+            <span class="c-key">"location"</span>: { <span class="c-key">"lat"</span>: <span class="c-num">37.7749</span>, <span class="c-key">"lon"</span>: <span class="c-num">-122.4194</span> }
+        }}
+      ]
+    }
+  },
+  <span class="c-key">"sort"</span>: [
+    { <span class="c-key">"_geo_distance"</span>: {
+        <span class="c-key">"location"</span>: [<span class="c-num">-122.4194</span>, <span class="c-num">37.7749</span>],
+        <span class="c-key">"order"</span>: <span class="c-str">"asc"</span>, <span class="c-key">"unit"</span>: <span class="c-str">"m"</span>
+    }}
+  ]
+}</div>
+            </div>
+          </div>
+          <details open>
+            <summary>▸ More: scaling &amp; failure checklist</summary>
+            <ul style="margin-top:8px">
+              <li>Shard count is fixed at index creation — reindex to change; prefer 1 shard per ~30 GB.</li>
+              <li>Replicas add HA but double indexing cost; set <code>index.number_of_replicas: 1</code> minimum in prod.</li>
+              <li>Hot/warm architecture: recent indices on SSD, older on HDD; ILM for rollover.</li>
+              <li>Circuit breaker &amp; queue rejections under heap pressure — monitor <code>_cat/thread_pool</code>.</li>
+              <li>Snapshot to S3/GCS; test restore drills — ES snapshots are incremental and cheap.</li>
+            </ul>
+          </details>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const API='/api';
+let currentLat=null, currentLon=null, currentLocName='';
+let currentPage=0, currentTotalPages=0, lastQuery='';
+let selectedRating=5;
+let suggestIndex=-1, suggestItems=[];
+/* helpers */
+function debounce(fn,ms){let t;return function(...a){clearTimeout(t);t=setTimeout(()=>fn.apply(this,a),ms)}}
+function renderStars(r){
+  if(!r||r===0) return '☆☆☆☆☆';
+  const f=Math.round(r);
+  return '★'.repeat(f)+'☆'.repeat(5-f);
+}
+function formatDistance(m){
+  if(m==null) return '';
+  if(m<1000) return Math.round(m)+' m';
+  return (m/1000).toFixed(1)+' km';
+}
+function formatDate(s){
+  if(!s) return '';
+  const d=new Date(s);
+  return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+}
+function showToast(msg,type){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.className='toast show '+(type||'info');
+  clearTimeout(t._hide);
+  t._hide=setTimeout(()=>t.classList.remove('show'),3000);
+}
+function escHtml(s){
+  return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+/* stats + categories */
+async function loadStats(){
+  try{
+    const r=await fetch(API+'/stats');
+    if(!r.ok) throw new Error('stats '+r.status);
+    const d=await r.json();
+    document.getElementById('pgBadge').innerHTML='PG: <strong>'+(d.postgresCount??'—')+'</strong>';
+    document.getElementById('esBadge').innerHTML='ES: <strong>'+(d.elasticsearchCount??'—')+'</strong>';
+    const dot=document.getElementById('healthDot');
+    const txt=document.getElementById('healthText');
+    const es=d.esHealth||d.es_health||'';
+    const h=String(es).toLowerCase();
+    if(h==='green'){dot.className='health-dot green';txt.textContent='green';}
+    else if(h==='yellow'){dot.className='health-dot yellow';txt.textContent='yellow';}
+    else if(h==='red'){dot.className='health-dot red';txt.textContent='red';}
+    else if(d.indexExists===false){dot.className='health-dot red';txt.textContent='no index';}
+    else if(d.indexExists===true){dot.className='health-dot green';txt.textContent='up';}
+    else {dot.className='health-dot green';txt.textContent='up';}
+    document.getElementById('indexBadge').textContent=d.indexExists===false?' · no index':d.indexExists===true?' · indexed':'';
+  }catch(e){
+    document.getElementById('pgBadge').textContent='PG: —';
+    document.getElementById('esBadge').textContent='ES: —';
+    document.getElementById('healthText').textContent='offline';
+    document.getElementById('healthDot').className='health-dot red';
+  }
+}
+async function loadCategories(){
+  try{
+    const r=await fetch(API+'/categories');
+    const cats=await r.json();
+    const sel=document.getElementById('categoryFilter');
+    cats.forEach(c=>{
+      const o=document.createElement('option');
+      o.value=c; o.textContent=c.charAt(0).toUpperCase()+c.slice(1);
+      sel.appendChild(o);
+    });
+  }catch(e){console.error('categories',e)}
+}
+/* location */
+function updateLocationLabel(){
+  const el=document.getElementById('locationLabel');
+  const capPin=document.getElementById('capGeoPin');
+  const radius=document.getElementById('radiusFilter').value;
+  const km=(parseInt(radius)/1000).toFixed(1).replace('.0','');
+  if(currentLat!=null && currentLon!=null){
+    const name=currentLocName||'custom';
+    el.textContent='📍 near '+name+' ('+currentLat.toFixed(4)+', '+currentLon.toFixed(4)+') radius '+km+'km';
+    el.classList.add('show');
+    if(capPin) capPin.textContent=name+' ('+currentLat.toFixed(4)+', '+currentLon.toFixed(4)+')';
+    document.querySelectorAll('.quick-row .btn-ghost').forEach(b=>{
+      const txt=b.textContent;
+      b.classList.toggle('active', txt.includes(name) || (name==='My Location' && txt.includes('Near Me')));
+    });
+  } else {
+    el.classList.remove('show'); el.textContent='';
+    if(capPin) capPin.textContent='none — pick a quick location above';
+    document.querySelectorAll('.quick-row .btn-ghost').forEach(b=>b.classList.remove('active'));
+  }
+}
+function setLocation(name,lat,lon){
+  currentLocName=name; currentLat=lat; currentLon=lon;
+  updateLocationLabel();
+  doSearch();
+}
+function clearLocation(){
+  currentLocName=''; currentLat=null; currentLon=null;
+  updateLocationLabel();
+  doSearch();
+}
+function useMyLocation(){
+  if(!navigator.geolocation){showToast('Geolocation not supported','error');return}
+  showToast('Locating…','info');
+  navigator.geolocation.getCurrentPosition(pos=>{
+    currentLocName='My Location';
+    currentLat=pos.coords.latitude;
+    currentLon=pos.coords.longitude;
+    updateLocationLabel();
+    doSearch();
+    showToast('Using your location','success');
+  },err=>{showToast('Location denied: '+err.message,'error')},{enableHighAccuracy:false,timeout:8000});
+}
+document.getElementById('radiusFilter').addEventListener('change',()=>{
+  if(currentLat!=null) {updateLocationLabel(); doSearch();}
+});
+/* suggest */
+const suggestDropdown=document.getElementById('suggestDropdown');
+const queryInput=document.getElementById('queryInput');
+async function fetchSuggest(q){
+  if(!q || q.length<1){ hideSuggest(); return; }
+  try{
+    const r=await fetch(API+'/suggest?q='+encodeURIComponent(q));
+    if(!r.ok){ hideSuggest(); return; }
+    const data=await r.json();
+    const items=(Array.isArray(data)?data: (data.suggestions||data.results||[])).slice(0,8);
+    if(items.length===0){ hideSuggest(); return; }
+    suggestItems=items;
+    suggestIndex=-1;
+    suggestDropdown.innerHTML=items.map((it,i)=>{
+      const text=it.text||it.name||it.title||String(it);
+      const cat=it.category||it.type||'';
+      return '<div class="suggest-item" data-idx="'+i+'" onmousedown="pickSuggest('+i+')"><span class="s-text">'+escHtml(text)+'</span>'+(cat?'<span class="suggest-badge">'+escHtml(cat)+'</span>':'')+'</div>';
+    }).join('');
+    suggestDropdown.classList.add('open');
+  }catch(e){ hideSuggest(); }
+}
+function hideSuggest(){
+  suggestDropdown.classList.remove('open');
+  suggestItems=[]; suggestIndex=-1;
+}
+function pickSuggest(i){
+  const it=suggestItems[i];
+  if(!it) return;
+  const text=it.text||it.name||it.title||String(it);
+  queryInput.value=text;
+  hideSuggest();
+  doSearch();
+}
+function highlightSuggest(){
+  const els=suggestDropdown.querySelectorAll('.suggest-item');
+  els.forEach((el,i)=>el.classList.toggle('highlighted', i===suggestIndex));
+  if(suggestIndex>=0 && els[suggestIndex]) els[suggestIndex].scrollIntoView({block:'nearest'});
+}
+const debouncedSuggest=debounce(()=>fetchSuggest(queryInput.value.trim()),200);
+queryInput.addEventListener('input', debouncedSuggest);
+queryInput.addEventListener('keydown', e=>{
+  const open=suggestDropdown.classList.contains('open');
+  if(open && (e.key==='ArrowDown' || e.key==='ArrowUp')){
+    e.preventDefault();
+    if(e.key==='ArrowDown') suggestIndex=Math.min(suggestIndex+1, suggestItems.length-1);
+    else suggestIndex=Math.max(suggestIndex-1, -1);
+    highlightSuggest();
+  } else if(e.key==='Enter'){
+    if(open && suggestIndex>=0){ e.preventDefault(); pickSuggest(suggestIndex); }
+    else { hideSuggest(); doSearch(); }
+  } else if(e.key==='Escape'){ hideSuggest(); }
+});
+queryInput.addEventListener('blur', ()=> setTimeout(hideSuggest,150));
+queryInput.addEventListener('focus', ()=>{
+  const v=queryInput.value.trim();
+  if(v) fetchSuggest(v);
+});
+/* search */
+function buildBusinessUrl(page){
+  const q=queryInput.value.trim();
+  const category=document.getElementById('categoryFilter').value;
+  const sortBy=document.getElementById('sortBy').value;
+  const radius=document.getElementById('radiusFilter').value;
+  const size=20;
+  let url=API+'/businesses?page='+page+'&size='+size+'&sortBy='+encodeURIComponent(sortBy);
+  if(q) url+='&q='+encodeURIComponent(q);
+  if(category) url+='&category='+encodeURIComponent(category);
+  if(currentLat!=null && currentLon!=null){
+    url+='&lat='+currentLat+'&lon='+currentLon+'&radius='+encodeURIComponent(radius);
+  }
+  return url;
+}
+async function doSearch(page){
+  if(page==null) page=0;
+  currentPage=page;
+  const container=document.getElementById('resultsContainer');
+  container.innerHTML='<div class="loading"><div class="spinner"></div><br>Searching…</div>';
+  document.getElementById('pagination').style.display='none';
+  try{
+    const url=buildBusinessUrl(page);
+    lastQuery=url;
+    const r=await fetch(url);
+    if(!r.ok) throw new Error('search '+r.status);
+    const data=await r.json();
+    renderResults(data);
+  }catch(e){
+    container.innerHTML='<div class="empty"><div class="e-icon">⚠️</div><p>Failed to load results. Is the backend running?</p><p style="margin-top:6px;font-size:11px;color:#bbb">'+escHtml(e.message)+'</p></div>';
+    console.error(e);
+  }
+}
+function renderResults(data){
+  const container=document.getElementById('resultsContainer');
+  const countEl=document.getElementById('resultsCount');
+  const titleEl=document.getElementById('resultsTitle');
+  const results=data.results||data.content||[];
+  const total=data.total!=null?data.total: (data.totalElements!=null?data.totalElements:results.length);
+  const page=data.page!=null?data.page: (data.number!=null?data.number:currentPage);
+  const pageSize=data.pageSize||data.size||20;
+  const totalPages=data.totalPages!=null?data.totalPages: Math.ceil(total/pageSize)||1;
+  currentTotalPages=totalPages; currentPage=page;
+  const q=queryInput.value.trim();
+  if(q) titleEl.textContent='"'+q+'" results';
+  else if(currentLat!=null) titleEl.textContent='Nearby results';
+  else titleEl.textContent='All Businesses';
+  countEl.textContent=total+' result'+(total!==1?'s':'');
+  if(results.length===0){
+    container.innerHTML='<div class="empty"><div class="e-icon">🔍</div><p>No results</p><p style="font-size:12px;margin-top:4px">Try a different term, category or radius.</p></div>';
+    document.getElementById('pagination').style.display='none';
+    return;
+  }
+  container.innerHTML=results.map(b=>`
+    <div class="business-card" onclick="viewBusiness(${b.id})">
+      <div class="bc-img">${b.imageUrl?escHtml(b.imageUrl):'🏪'}</div>
+      <div class="bc-info">
+        <div class="bc-name">${escHtml(b.name||'Unnamed')}</div>
+        <div class="bc-meta">
+          <span class="stars">${renderStars(b.avgRating)}</span>
+          <span class="rating-num">${b.avgRating>0?Number(b.avgRating).toFixed(1):'New'}</span>
+          <span class="review-count">(${b.numRatings||0} review${(b.numRatings||0)!==1?'s':''})</span>
+          ${b.priceRange?'<span class="price-tag">'+escHtml(b.priceRange)+'</span>':''}
+        </div>
+        <div class="bc-cat">${escHtml(b.category||'')}</div>
+        <div class="bc-addr">${escHtml(b.address||'')}</div>
+        ${b.distanceMeters!=null?'<div class="bc-dist">📍 '+formatDistance(b.distanceMeters)+' away</div>':''}
+      </div>
+    </div>
+  `).join('');
+  // pagination
+  const pag=document.getElementById('pagination');
+  if(totalPages>1){
+    pag.style.display='flex';
+    document.getElementById('pageInfo').textContent='Page '+(page+1)+' / '+totalPages;
+    document.getElementById('prevBtn').disabled=page<=0;
+    document.getElementById('nextBtn').disabled=page>=totalPages-1;
+  } else pag.style.display='none';
+}
+function changePage(dir){
+  const np=currentPage+dir;
+  if(np<0 || np>=currentTotalPages) return;
+  doSearch(np);
+  document.getElementById('resultsContainer').scrollIntoView({behavior:'smooth',block:'start'});
+}
+/* detail */
+async function viewBusiness(id){
+  const panel=document.getElementById('detailPanel');
+  const content=document.getElementById('detailContent');
+  panel.classList.add('open');
+  content.innerHTML='<div class="loading"><div class="spinner"></div><br>Loading…</div>';
+  panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+  try{
+    const r=await fetch(API+'/businesses/'+id);
+    if(!r.ok) throw new Error('detail '+r.status);
+    const data=await r.json();
+    renderDetail(data);
+  }catch(e){
+    content.innerHTML='<div class="empty"><p>Failed to load business.</p></div>';
+  }
+}
+function renderDetail(data){
+  const b=data.business||data;
+  const reviews=data.reviews||[];
+  const content=document.getElementById('detailContent');
+  selectedRating=5;
+  content.innerHTML=`
+    <div class="detail-head">
+      <h3>${escHtml(b.name||'')}</h3>
+      <button class="close-btn" onclick="closeDetail()" aria-label="Close">×</button>
+    </div>
+    <div class="detail-img">${b.imageUrl?escHtml(b.imageUrl):'🏪'}</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+      <span class="stars">${renderStars(b.avgRating)}</span>
+      <span class="rating-num">${b.avgRating>0?Number(b.avgRating).toFixed(1):'New'}</span>
+      <span class="review-count">${b.numRatings||0} review${(b.numRatings||0)!==1?'s':''}</span>
+      ${b.priceRange?'<span class="price-tag">'+escHtml(b.priceRange)+'</span>':''}
+    </div>
+    <div class="detail-desc">${escHtml(b.description||'No description available.')}</div>
+    <div class="detail-row"><span class="lbl">Category:</span> <span style="text-transform:capitalize">${escHtml(b.category||'')}</span></div>
+    <div class="detail-row"><span class="lbl">Address:</span> <span>${escHtml(b.address||'')}</span></div>
+    <div class="detail-row"><span class="lbl">Phone:</span> <span>${escHtml(b.phone||'N/A')}</span></div>
+    <div class="detail-row"><span class="lbl">Coords:</span> <span>${b.latitude!=null?Number(b.latitude).toFixed(4):'—'}, ${b.longitude!=null?Number(b.longitude).toFixed(4):'—'}</span></div>
+    ${b.locationNames && b.locationNames.length?'<div class="detail-row"><span class="lbl">Areas:</span> <span>'+escHtml(b.locationNames.join(', '))+'</span></div>':''}
+    ${b.distanceMeters!=null?'<div class="detail-row"><span class="lbl">Distance:</span> <span style="color:var(--teal-dark);font-weight:700">'+formatDistance(b.distanceMeters)+'</span></div>':''}
+    <div class="reviews-sec">
+      <h4>Reviews (${reviews.length})</h4>
+      <div>
+        ${reviews.length===0?'<p style="color:var(--muted);padding:8px 0;font-size:13px">No reviews yet. Be the first!</p>':
+          reviews.map(r=>`
+            <div class="review-card">
+              <div class="rh"><span class="r-avatar">👤</span><span class="r-author">${escHtml(r.userDisplayName||r.userName||('User '+(r.userId||'')))}</span><span class="r-date">${formatDate(r.createdAt||r.created_at)}</span></div>
+              <div class="r-stars">${renderStars(r.rating)}</div>
+              ${r.text?'<div class="r-text">'+escHtml(r.text)+'</div>':''}
+            </div>
+          `).join('')}
+      </div>
+      <div class="review-form">
+        <h5>Write a Review</h5>
+        <div class="form-group"><label>User</label>
+          <select id="reviewUser"><option value="1">Alice Chen</option><option value="2">Bob Martinez</option><option value="3">Carol Johnson</option><option value="4">Dave Kim</option><option value="5">Eve Patel</option></select>
+        </div>
+        <div class="form-group"><label>Rating</label>
+          <div class="star-rating" id="starRating">
+            <span data-val="1" onclick="setRating(1)">★</span>
+            <span data-val="2" onclick="setRating(2)">★</span>
+            <span data-val="3" onclick="setRating(3)">★</span>
+            <span data-val="4" onclick="setRating(4)">★</span>
+            <span data-val="5" onclick="setRating(5)" class="active">★</span>
+          </div>
+        </div>
+        <div class="form-group"><label>Review (optional)</label><textarea id="reviewText" placeholder="Share your experience…"></textarea></div>
+        <button class="btn-submit" onclick="submitReview(${b.id})">Post Review</button>
+      </div>
+    </div>
+  `;
+  // init star highlight
+  setRating(5);
+}
+function closeDetail(){document.getElementById('detailPanel').classList.remove('open')}
+function setRating(v){
+  selectedRating=v;
+  document.querySelectorAll('#starRating span').forEach(s=>{
+    s.classList.toggle('active', parseInt(s.dataset.val)<=v);
+  });
+}
+async function submitReview(businessId){
+  const userEl=document.getElementById('reviewUser');
+  const textEl=document.getElementById('reviewText');
+  if(!userEl) return;
+  const userId=parseInt(userEl.value);
+  const text=textEl.value.trim();
+  try{
+    const r=await fetch(API+'/businesses/'+businessId+'/reviews',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({userId, rating:selectedRating, text: text||null})
+    });
+    if(r.status===201 || r.ok){ showToast('Review posted! ⭐','success'); viewBusiness(businessId); doSearch(currentPage); }
+    else if(r.status===409){ showToast('You already reviewed this business!','error'); }
+    else { const err=await r.json().catch(()=>({error:'Failed'})); showToast(err.error||err.message||'Failed to post review','error'); }
+  }catch(e){ showToast('Network error','error'); }
+}
+/* Benchmark helpers */
+function benchLoading(el){ el.innerHTML='<div class="loading" style="padding:16px"><div class="spinner"></div><br>Running…</div>'; }
+function renderBenchResult(containerId, data, extraNote){
+  const el=document.getElementById(containerId);
+  if(!data){ el.innerHTML='<div style="color:var(--danger);font-size:12px">No data returned.</div>'; return; }
+  const pg=data.postgres||data.pg||{};
+  const es=data.elasticsearch||data.elastic||data.es||{};
+  const pgMs=pg.tookMs!=null?pg.tookMs: (pg.took_ms!=null?pg.took_ms: (pg.timeMs!=null?pg.timeMs:0));
+  const esMs=es.tookMs!=null?es.tookMs: (es.took_ms!=null?es.took_ms: (es.timeMs!=null?es.timeMs:0));
+  const pgTotal=pg.total!=null?pg.total: (pg.count!=null?pg.count: (pg.results?pg.results.length:0));
+  const esTotal=es.total!=null?es.total: (es.count!=null?es.count: (es.results?es.results.length:0));
+  const maxMs=Math.max(pgMs,esMs,1);
+  const pgW=Math.max(6, (pgMs/maxMs)*100);
+  const esW=Math.max(6, (esMs/maxMs)*100);
+  const pgWin=pgMs<esMs && pgMs>0;
+  const esWin=esMs<pgMs && esMs>0;
+  const pgResults=(pg.results||[]).slice(0,3);
+  const esResults=(es.results||[]).slice(0,3);
+  const faster = pgWin ? 'PG faster' : esWin ? 'ES faster' : 'tie';
+  const queryLabel=escHtml(data.query||'');
+  el.innerHTML=`
+    <table class="br-table"><thead><tr><th></th><th>Time</th><th>Total</th></tr></thead>
+      <tbody>
+        <tr><td>Postgres</td><td class="${pgWin?'winner':''}">${pgMs} ms ${pgWin?'✓':''}</td><td>${pgTotal}</td></tr>
+        <tr><td>Elasticsearch</td><td class="${esWin?'winner':''}">${esMs} ms ${esWin?'✓':''}</td><td>${esTotal}</td></tr>
+      </tbody>
+    </table>
+    <div class="bar-row"><span class="bar-label">PG</span><div class="bar-track"><div class="bar-fill pg" style="width:${pgW}%"></div></div><span class="bar-val">${pgMs} ms</span></div>
+    <div class="bar-row"><span class="bar-label">ES</span><div class="bar-track"><div class="bar-fill es" style="width:${esW}%"></div></div><span class="bar-val">${esMs} ms</span></div>
+    <div style="font-size:11px;color:var(--muted);margin-top:4px">Winner: <b style="color:${pgWin?'var(--danger)':esWin?'var(--teal-dark)':'var(--muted)'}">${faster}</b> · ${queryLabel? 'query: '+queryLabel+' · ':''}${extraNote||''}</div>
+    ${(pgResults.length||esResults.length)?'<div class="preview-list">'+
+      (pgResults.length? pgResults.map(r=>'<div class="pv">PG: '+escHtml(r.name||r.text||String(r))+'</div>').join('') : '')+
+      (esResults.length? esResults.map(r=>'<div class="pv">ES: '+escHtml(r.name||r.text||String(r))+'</div>').join('') : '')+
+      '</div>':''}
+  `;
+}
+async function runTextBench(){
+  const btn=document.getElementById('btnText');
+  const el=document.getElementById('benchResultsText');
+  btn.disabled=true; btn.textContent='Running…'; benchLoading(el);
+  try{
+    const r=await fetch(API+'/benchmark/text?q=taco&page=0&size=5');
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    renderBenchResult('benchResultsText', d, 'q=taco');
+  }catch(e){ el.innerHTML='<div style="color:var(--danger);font-size:12px">Failed: '+escHtml(e.message)+'</div>'; }
+  finally{ btn.disabled=false; btn.textContent='Run text benchmark'; }
+}
+async function runGeoBench(){
+  const btn=document.getElementById('btnGeo');
+  const el=document.getElementById('benchResultsGeo');
+  btn.disabled=true; btn.textContent='Running…'; benchLoading(el);
+  try{
+    const r=await fetch(API+'/benchmark/geo?lat=37.7522&lon=-122.4157&radius=1000&page=0&size=5');
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    const total=(d.elasticsearch&&d.elasticsearch.total)||(d.es&&d.es.total)||(d.postgres&&d.postgres.total)||0;
+    renderBenchResult('benchResultsGeo', d, total+' within 1 km · geo_distance vs ST_DWithin');
+  }catch(e){ el.innerHTML='<div style="color:var(--danger);font-size:12px">Failed: '+escHtml(e.message)+'</div>'; }
+  finally{ btn.disabled=false; btn.textContent='Run geo benchmark'; }
+}
+async function runCombinedBench(){
+  const btn=document.getElementById('btnCombined');
+  const el=document.getElementById('benchResultsCombined');
+  btn.disabled=true; btn.textContent='Running…'; benchLoading(el);
+  try{
+    const r=await fetch(API+'/benchmark/combined?q=spicy%20pizza&lat=37.7749&lon=-122.4194&radius=1000&category=restaurant&page=0&size=5');
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    renderBenchResult('benchResultsCombined', d, 'q=spicy pizza · category=restaurant · 1 km SF');
+  }catch(e){ el.innerHTML='<div style="color:var(--danger);font-size:12px">Failed: '+escHtml(e.message)+'</div>'; }
+  finally{ btn.disabled=false; btn.textContent='Run combined'; }
+}
+async function runAllBenchmarks(){
+  const allBtn=document.getElementById('runAllBtn');
+  allBtn.disabled=true; allBtn.textContent='Running all…';
+  await runTextBench();
+  await runGeoBench();
+  await runCombinedBench();
+  allBtn.disabled=false; allBtn.textContent='▶ Run all three';
+  showToast('All benchmarks complete','success');
+}
+/* Capabilities */
+function switchTab(name){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===name));
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active', p.id==='tab-'+name));
+}
+async function capTextSearch(){
+  const q=document.getElementById('capTextInput').value.trim();
+  const out=document.getElementById('capTextResults');
+  const note=document.getElementById('capTextNote');
+  if(!q){ showToast('Enter a search term','error'); return; }
+  out.innerHTML='<div class="loading"><div class="spinner"></div><br>Searching…</div>';
+  note.textContent='';
+  try{
+    const r=await fetch(API+'/businesses?q='+encodeURIComponent(q)+'&size=5');
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    const results=d.results||d.content||[];
+    note.textContent='Standard + english analyzer, multi_match on name^3 + description. BM25 ranking.';
+    if(results.length===0) out.innerHTML='<div class="empty"><p>No results</p></div>';
+    else out.innerHTML=results.map(b=>`
+      <div class="cap-mini-card"><div><div class="cm-name">${escHtml(b.name)}</div><div class="cm-meta">${escHtml(b.category)} · ${renderStars(b.avgRating)} ${b.avgRating>0?Number(b.avgRating).toFixed(1):''}</div></div><span class="suggest-badge">${escHtml(b.category)}</span></div>
+    `).join('');
+  }catch(e){ out.innerHTML='<div style="color:var(--danger);font-size:12px">Failed: '+escHtml(e.message)+'</div>'; }
+}
+async function capGeoSearch(){
+  const out=document.getElementById('capGeoResults');
+  if(currentLat==null || currentLon==null){ showToast('Pick a location first (SF / Manhattan / Bangalore)','error'); return; }
+  out.innerHTML='<div class="loading"><div class="spinner"></div><br>Geo searching…</div>';
+  try{
+    const r=await fetch(API+'/businesses?lat='+currentLat+'&lon='+currentLon+'&radius=1000&sortBy=distance&page=0&size=5');
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    const results=d.results||d.content||[];
+    if(results.length===0) out.innerHTML='<div class="empty"><p>No results within 1 km</p></div>';
+    else out.innerHTML=results.map(b=>`
+      <div class="cap-mini-card"><div><div class="cm-name">${escHtml(b.name)}</div><div class="cm-meta">${escHtml(b.category)} · ${formatDistance(b.distanceMeters)} · ${renderStars(b.avgRating)}</div></div><span style="font-size:11px;font-weight:700;color:var(--teal-dark)">${formatDistance(b.distanceMeters)}</span></div>
+    `).join('')+'<div style="font-size:11px;color:var(--muted);margin-top:6px">Note: map uses a placeholder — distances come from _geo_distance sort.</div>';
+  }catch(e){ out.innerHTML='<div style="color:var(--danger);font-size:12px">Failed: '+escHtml(e.message)+'</div>'; }
+}
+async function loadAggregations(){
+  const btn=document.getElementById('loadAggBtn');
+  const out=document.getElementById('aggResults');
+  btn.disabled=true; btn.textContent='Loading…';
+  out.innerHTML='<div class="loading"><div class="spinner"></div><br>Loading aggregations…</div>';
+  try{
+    let url=API+'/capabilities/aggregations';
+    if(currentLat!=null && currentLon!=null) url+='?lat='+currentLat+'&lon='+currentLon+'&radius=1000';
+    const r=await fetch(url);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    const byCat=d.by_category||d.byCategory||d.categories||{};
+    const hist=d.avg_rating_histogram||d.avgRatingHistogram||d.histogram||d.rating_histogram||{};
+    // Normalize to object
+    const catEntries=Array.isArray(byCat)? byCat.map(x=>[x.key||x.category||x.name, x.doc_count||x.count||x.value]) : Object.entries(byCat);
+    const histEntries=Array.isArray(hist)? hist.map(x=>[x.key||x.bucket, x.doc_count||x.count||x.value]) : Object.entries(hist);
+    const maxCat=Math.max(...catEntries.map(([,v])=>Number(v)||0),1);
+    const maxHist=Math.max(...histEntries.map(([,v])=>Number(v)||0),1);
+    let html='';
+    if(catEntries.length){
+      html+='<div style="font-size:12px;font-weight:800;margin-bottom:6px">By category</div><div class="chip-row">'+
+        catEntries.map(([k,v])=>`
+          <span class="cat-chip">${escHtml(k)} <b>${v}</b><span class="cc-bar"><span class="cc-fill" style="width:${(Number(v)/maxCat*100).toFixed(0)}%"></span></span></span>
+        `).join('')+'</div>';
+    } else html+='<div style="font-size:12px;color:var(--muted)">No category buckets returned.</div>';
+    if(histEntries.length){
+      html+='<div style="font-size:12px;font-weight:800;margin:12px 0 6px">Avg rating histogram</div>'+
+        histEntries.map(([k,v])=>`
+          <div class="hist-row"><span class="hr-label">${escHtml(k)}</span><div class="hr-track"><div class="hr-fill" style="width:${(Number(v)/maxHist*100).toFixed(0)}%"></div></div><span class="hr-val">${v}</span></div>
+        `).join('');
+    } else html+='<div style="font-size:12px;color:var(--muted);margin-top:10px">No histogram buckets returned.</div>';
+    if(!catEntries.length && !histEntries.length){
+      html+='<pre style="font-size:11px;background:#fff;border:1px solid var(--border);padding:10px;border-radius:8px;overflow:auto;margin-top:10px">'+escHtml(JSON.stringify(d,null,2))+'</pre>';
+    }
+    out.innerHTML=html;
+  }catch(e){ out.innerHTML='<div style="color:var(--danger);font-size:12px">Failed: '+escHtml(e.message)+'</div>'; }
+  finally{ btn.disabled=false; btn.textContent='Load aggregations'; }
+}
+async function capFuzzySearch(){
+  const q=document.getElementById('capFuzzyInput').value.trim();
+  const out=document.getElementById('capFuzzyResults');
+  const note=document.getElementById('capFuzzyNote');
+  if(!q){ showToast('Try: piza, burgor, sushii','error'); return; }
+  out.innerHTML='<div class="loading"><div class="spinner"></div><br>Fuzzy searching…</div>';
+  note.textContent='';
+  try{
+    const r=await fetch(API+'/capabilities/fuzzy?q='+encodeURIComponent(q)+'&page=0&size=5');
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    const results=d.results||d.content||[];
+    note.textContent='fuzziness: AUTO — Levenshtein corrects typos. Try piza → pizza, burgor → burger.';
+    if(results.length===0) out.innerHTML='<div class="empty"><p>No fuzzy matches</p></div>';
+    else out.innerHTML=results.map(b=>`
+      <div class="cap-mini-card"><div><div class="cm-name">${escHtml(b.name)}</div><div class="cm-meta">${escHtml(b.category)} · ${renderStars(b.avgRating)} · ${escHtml(b.address||'')}</div></div><span class="suggest-badge">fuzzy</span></div>
+    `).join('');
+  }catch(e){ out.innerHTML='<div style="color:var(--danger);font-size:12px">Failed: '+escHtml(e.message)+'</div>'; }
+}
+/* anchor nav active state */
+function updateActiveNav(){
+  const sections=['search','benchmark','capabilities','interviewNotes'];
+  let cur='search';
+  for(const id of sections){
+    const el=document.getElementById(id);
+    if(el && window.scrollY >= el.offsetTop - 120) cur=id;
+  }
+  document.querySelectorAll('.anchor-nav a').forEach(a=>{
+    a.classList.toggle('active', a.getAttribute('href')==='#'+cur);
+  });
+}
+window.addEventListener('scroll', debounce(updateActiveNav,80));
+/* init */
+document.addEventListener('DOMContentLoaded',()=>{
+  loadStats();
+  loadCategories();
+  doSearch(0);
+  document.getElementById('capTextInput').addEventListener('keypress', e=>{ if(e.key==='Enter') capTextSearch(); });
+  document.getElementById('capFuzzyInput').addEventListener('keypress', e=>{ if(e.key==='Enter') capFuzzySearch(); });
+  document.getElementById('categoryFilter').addEventListener('change', ()=>doSearch(0));
+  document.getElementById('sortBy').addEventListener('change', ()=>doSearch(0));
+  document.getElementById('searchBtn').addEventListener('click', ()=>doSearch(0));
+});
+</script>
+</body>
+</html>
