@@ -109,11 +109,3 @@ git push origin --delete feature/<topic>
 - Launcher entries may *reference* a local project by relative path (like `color-corrector` does), but the project's files themselves must stay uncommitted.
 
 ---
-
-## Hello Interview implementations
-
-When adding or extending a system-design **demo** from Hello Interview (or similar):
-
-1. Read [`.cursor/skills/hello-interview-system-design/SKILL.md`](.cursor/skills/hello-interview-system-design/SKILL.md).
-2. Default to the breakdown’s “great” path; expose other named alternatives as `application.yml` flags.
-3. Place code in `<problem>-demo/` with Docker, `./start.sh`, and a short original design note (`<Problem>.md`).
