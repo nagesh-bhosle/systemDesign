@@ -95,6 +95,17 @@ git push origin --delete feature/<topic>
 - ❌ Never skip the branch step, even for "small" changes
 - ❌ Never push to `main` without merging through the workflow
 - ❌ Never create a new project without `start.sh` and `stop.sh`
+- ❌ Never track third-party study material or copyrighted content (e.g. `*.pdf`,
+  `hello*` files) — keep them out of the repo entirely (see `.gitignore`)
+- ❌ Never reference or write the brand name "Hello Interview" anywhere in the repo,
+  including docs, notes, comments, and commit messages
+
+## Third-party content policy
+
+This is a **public** repository. Never commit, upload, or reference third-party study
+material, blog downloads, PDFs, or any copyrighted content — and never mention the
+brand name of the source. If a study document is used as reference, write original
+notes from it and cite only the general concepts, never the source brand.
 
 ## Exceptions
 

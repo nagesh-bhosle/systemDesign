@@ -17,3 +17,6 @@ Thumbs.db
 
 # Logs
 *.log
+# Never track third-party study material / copyrighted content
+*.pdf
+hello*

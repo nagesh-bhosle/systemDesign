@@ -18,7 +18,7 @@ Asked at:
 
 **🍽️ What is [Yelp](https://www.yelp.com/)?** Yelp is an online platform that allows users to search for and review local businesses, restaurants, and services.
 
-### [Functional Requirements](https://www.hellointerview.com/learn/system-design/in-a-hurry/delivery#1-functional-requirements)
+### Functional Requirements
 
 Some interviewers will start the interview by outlining the core functional requirements for you. Other times, you'll be tasked with coming up with them yourself. If you've used the product before, this should be relatively straight forward. However, if you haven't, it's a good idea to ask some questions of your interviewer to better understand the system.
 
@@ -44,7 +44,7 @@ Try it yourself first
 
 We recommend you to practice the question yourself first to get instant personalized feedback as you go.
 
-### [Non-Functional Requirements](https://www.hellointerview.com/learn/system-design/in-a-hurry/delivery#2-non-functional-requirements)
+### Non-Functional Requirements
 
 **Core Requirements**
 
@@ -58,7 +58,7 @@ We recommend you to practice the question yourself first to get instant personal
 - The system should be fault tolerant
 - The system should protect against spam and abuse
 
-If you're someone who often struggles to come up with your non-functional requirements, take a look at this list of [common non-functional requirements](https://www.hellointerview.com/learn/system-design/in-a-hurry/delivery#2-non-functional-requirements) that should be considered. Just remember, most systems are all these things (fault tolerant, scalable, etc) but your goal is to identify the unique characteristics that make this system challenging or unique.
+If you're someone who often struggles to come up with your non-functional requirements, take a look at this list of [common non-functional requirements](https://en.wikipedia.org/wiki/Non-functional_requirement) that should be considered. Just remember, most systems are all these things (fault tolerant, scalable, etc) but your goal is to identify the unique characteristics that make this system challenging or unique.
 
 Here is what you might write on the whiteboard:
 
@@ -74,7 +74,7 @@ When I ask yelp, I'll introduce the constraint that **each user can only leave o
 
 ## The Set Up
 
-### [Defining the Core Entities](https://www.hellointerview.com/learn/system-design/in-a-hurry/delivery#core-entities-2-minutes)
+### Defining the Core Entities
 
 We recommend that you start with a broad overview of the primary entities. At this stage, it is not necessary to know every specific column or detail. We will focus on the intricacies, such as columns and fields, later when we have a clearer grasp. Initially, establishing these key entities will guide our thought process and lay a solid foundation as we progress towards defining the API.
 
@@ -92,7 +92,7 @@ Core Entities- Users- Businesses- Reviews
 
 Yelp Entities
 
-### [The API](https://www.hellointerview.com/learn/system-design/in-a-hurry/delivery#4-api-or-system-interface)
+### The API
 
 The next step in the framework is to define the APIs of the system. This sets up a contract between the client and the server, and it's the first point of reference for the high-level design.
 
@@ -135,7 +135,7 @@ POST /businesses/:businessId/reviews
 }
 ```
 
-## [High-Level Design](https://www.hellointerview.com/learn/system-design/in-a-hurry/delivery#high-level-design-10-15-minutes)
+## High-Level Design
 
 We'll start our design by going one-by-one through our functional requirements and designing a single system to satisfy them. Once we have this in place, we'll layer on depth via our deep dives.
 
@@ -219,7 +219,7 @@ At the end of the day, it's a discussion of trade-offs with no single correct an
 
 Show More
 
-## [Potential Deep Dives](https://www.hellointerview.com/learn/system-design/in-a-hurry/delivery#deep-dives-10-minutes)
+## Potential Deep Dives
 
 At this point, we have a basic, functioning system that satisfies the functional requirements. However, there are a number of areas we could dive deeper into to improve the system's performance, scalability, and fault tolerance. Depending on your seniority, you'll be expected to drive the conversation toward these deeper topics of interest.
 
@@ -258,13 +258,9 @@ AND longitude > 10 AND longitude < 20
 AND name LIKE '%coffee%';
 ```
 
-[](https://www.hellointerview.com/learn/system-design/deep-dives/proximity-search)
-
 1. [](https://en.wikipedia.org/wiki/Geohash)[](https://en.wikipedia.org/wiki/Quadtree)[](https://en.wikipedia.org/wiki/R-tree)
 2. [](https://en.wikipedia.org/wiki/Inverted_index)
 3. [](https://en.wikipedia.org/wiki/B-tree)
-
-[](https://www.hellointerview.com/learn/system-design/deep-dives/elasticsearch)
 
 [](https://en.wikipedia.org/wiki/Change_data_capture)
 
@@ -357,7 +353,7 @@ ClientAPI Gateway- authentication- rate limiting- routingBusiness ServiceDatabas
 
 Yelp Final Design
 
-## [What is Expected at Each Level?](https://www.hellointerview.com/blog/the-system-design-interview-what-is-expected-at-each-level)
+## What is Expected at Each Level?
 
 So, what am I looking for at each level?
 

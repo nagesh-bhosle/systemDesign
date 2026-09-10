@@ -21,6 +21,7 @@
                 <a th:href="@{/pages/versioned-writes}">Versioned Writes</a>
                 <a th:href="@{/pages/snowflake}">Snowflake IDs</a>
                 <a th:href="@{/pages/sql-vs-cql}">SQL vs CQL</a>
+                <a th:href="@{/pages/notes}">Notes</a>
             </nav>
         </div>
     </header>
@@ -68,6 +69,10 @@
             <a class="card feature" th:href="@{/pages/snowflake}">
                 <h3>Snowflake IDs</h3>
                 <p>Time-ordered 64-bit IDs generated from timestamp + worker + sequence.</p>
+            </a>
+            <a class="card feature" th:href="@{/pages/notes}">
+                <h3>Quick-Revise Notes</h3>
+                <p>What Cassandra is, when to use/avoid it, how it works, and vs Postgres.</p>
             </a>
         </section>
     </main>

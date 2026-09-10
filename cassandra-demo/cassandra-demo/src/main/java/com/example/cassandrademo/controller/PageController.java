@@ -30,4 +30,7 @@ public class PageController {
 
     @GetMapping("/pages/sql-vs-cql")
     public String sqlVsCql() { return "sql-vs-cql"; }
+
+    @GetMapping("/pages/notes")
+    public String notes() { return "notes"; }
 }

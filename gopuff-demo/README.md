@@ -17,7 +17,7 @@ Needs Docker (Postgres on **5434**, Redis on **6380**) and Java 21.
 
 ## Strategy flags (`application.yml`)
 
-All Hello Interview alternatives are real beans. Change a flag and restart.
+All strategy alternatives are real beans. Change a flag and restart.
 
 ```yaml
 gopuff:

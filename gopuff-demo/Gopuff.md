@@ -60,4 +60,4 @@ Greedy from the nearest serviceable DC. If any line cannot be filled, the whole 
 
 ## References
 
-Public breakdown: https://www.hellointerview.com/learn/system-design/problem-breakdowns/gopuff
+Public breakdown: standard system-design walkthrough of an on-demand delivery / convenience-store service.
