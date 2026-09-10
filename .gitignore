@@ -17,6 +17,14 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Environment / secrets — NEVER commit
+# A real .env holds credentials (JWT secrets, DB/Redis/MinIO passwords).
+# Keep it local; commit a .env.example with placeholder values instead.
+.env
+.env.*
+!.env.example
+
 # Never track third-party study material / copyrighted content
 *.pdf
 hello*
